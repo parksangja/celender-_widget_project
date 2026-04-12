@@ -9,9 +9,9 @@ class CalendarWidget(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.engine = CalendarEngine()
+        self.engine = CalendarEngine() #다른 파일에서 정의한 클래스를 가져와 함수로 저장
 
-        #
+        # 테스트용
         try:
             self.engine.add_event("회의", "2026-04-10", "15:00", 60)
             self.engine.add_event("운동", "2026-04-10", "18:00", 60)
@@ -32,7 +32,7 @@ class CalendarWidget(QWidget):
             Qt.WindowType.Tool #위젯을 윈도우 설정 상 Tool로 지정
         )
 
-        # 스타일 (간단한 다크 UI)
+        # 스타일 (간단한 다크 UI) / 변경 가능하게 만들 예정
         self.setStyleSheet("""
             QWidget {
                 background-color: rgba(30, 30, 30, 220);
@@ -43,9 +43,9 @@ class CalendarWidget(QWidget):
 
         self.setWindowTitle("Mini Calendar Widget")
 
-        layout = QVBoxLayout()
+        layout = QVBoxLayout() #내부 캘린더가 일정한 비율로 자유롭게 변환
 
-        self.calendar = QCalendarWidget()
+        self.calendar = QCalendarWidget() #패키지 속 캘린더를 가져옴
         self.calendar.clicked.connect(self.on_date_clicked)
 
         self.event_list = QListWidget()
