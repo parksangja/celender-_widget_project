@@ -13,7 +13,7 @@ class CalendarEngine:
     # 내부 유틸
     # ------------------------
     def _generate_id(self): #ㅅㅂ 이 함수가 왜 있는거임? 이놈이 이벤트 아이디 생성해서 self값을 정하는건가?
-        if not self.events: #리스트가 빈 리스트일때, 함수는 1을 반환한다.
+        if not self.events: #리스트가 빈 리스트일때, 함수는 1을 반환한다. 즉 첫번째 이벤트의 id를 1로 정해 반환한다.
             return 1
         return max(e["id"] for e in self.events) + 1 #리스트가 빈 리스트가 아니라면, 이벤트 리스트의 id 중 최댓값에 1을 더해 반환한다.(json파일에서 가져오는듯?)
 
@@ -31,7 +31,7 @@ class CalendarEngine:
             "priority": event.get("priority")
         }
 
-    def _save(self): #self값을 받아와 그 값에 해당하는 이벤트를 저장하는 함수
+    def _save(self): #self값을 받아와 그 값에 해당하는 이벤트를 data 리스트에 저장하는 함수
         data = [self._to_dict(e) for e in self.events] #
         with open(self.storage_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
