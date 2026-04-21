@@ -3,7 +3,7 @@ import json
 import os
 
 
-class CalendarEngine:
+class CalendarEngine: #self를 사용하는 이유: 클래스 정의 시 첫번째 매개변수로 반드시 사용되어야 함. 물론 딴거 써도 됨.
     def __init__(self, storage_path="events.json"): #class 실행시 자동으로 불러오는 메소드
         self.events = [] #입력 받은 이벤트를 담을 리스트
         self.storage_path = storage_path #위 리스트를 json파일에 넣기
@@ -32,9 +32,9 @@ class CalendarEngine:
         }
 
     def _save(self): #self값을 받아와 그 값에 해당하는 이벤트를 저장하는 함수
-        data = [self._to_dict(e) for e in self.events] #
-        with open(self.storage_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        data = [self._to_dict(e) for e in self.events] #data = 이벤트 파일 안에 있는 이벤트를 가져와 함수 _to_dict에 넣고 반환된 값 
+        with open(self.storage_path, "w", encoding="utf-8") as f: #이벤트를 주어진 경로를 따라 한글로 열어 아래 명령이 끝나면 닫음 (tq w가 왜있는거임?)
+            json.dump(data, f, ensure_ascii=False, indent=2) #저장 파일이 json형식이기에. json모듈 명령어인 dump를 사용해 data를 파일로 저장함. 
 
     def _load(self):
         if not os.path.exists(self.storage_path):
