@@ -1,5 +1,11 @@
 import re
-from korean_datetime_parser import WEEKDAY_MAP, has_date_expression, parse_korean_datetime
+from korean_datetime_parser import (
+    TIME_PATTERN,
+    WEEKDAY_MAP,
+    has_date_expression,
+    parse_korean_datetime,
+    parse_korean_number,
+)
 
 def to_engine_format(dt): #엔진과 연결하기 위한 함수(엔진과 출력형식 맞추는 용도)
     if not hasattr(dt, "strftime"):
@@ -14,6 +20,7 @@ LIST_WORDS = ["보여줘", "보여", "조회해줘", "조회", "확인해줘", "
 GENERAL_WORDS = ["일정", "스케줄"]
 
 PARTICLES = ["에서", "으로", "에게", "한테", "을", "를", "에", "랑", "과", "와"]
+NUMBER_PATTERN = r"\d+|[가-힣]+"
 
 
 def _remove_words(text, words):
@@ -25,9 +32,11 @@ def extract_title(text: str): #제목 추출용 함수
     original = text
 
     # 기간 표현을 시간 표현보다 먼저 지워야 "2시간"에서 "간"이 남지 않는다.
-    text = re.sub(r"\d+\s*시간", " ", text)
-    text = re.sub(r"\d+\s*분", " ", text)
-    text = re.sub(r"\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?", " ", text)
+    text = re.sub(rf"({NUMBER_PATTERN})\s*시간\s*반", " ", text)
+    text = re.sub(r"반\s*시간", " ", text)
+    text = re.sub(rf"({NUMBER_PATTERN})\s*시간(?:\s*({NUMBER_PATTERN})\s*분)?", " ", text)
+    text = re.sub(rf"({NUMBER_PATTERN})\s*분(?:\s*(?:동안|간))?", " ", text)
+    text = re.sub(TIME_PATTERN, " ", text)
     text = re.sub(r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
     text = re.sub(r"\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
     text = re.sub(r"(?:다음\s*달|다음달|이번\s*달|이번달)\s*\d{1,2}\s*일", " ", text)
@@ -61,13 +70,30 @@ def extract_title(text: str): #제목 추출용 함수
     return text
 
 def extract_duration(text: str): #이벤트 지속시간 처리용 함수
-    match = re.search(r"(\d+)\s*시간", text)
-    if match:
-        return int(match.group(1)) * 60
+    duration_text = re.sub(TIME_PATTERN, " ", text)
 
-    match = re.search(r"(\d+)\s*분", text)
+    match = re.search(rf"({NUMBER_PATTERN})\s*시간\s*반", duration_text)
     if match:
-        return int(match.group(1))
+        hour = parse_korean_number(match.group(1))
+        if hour is not None:
+            return (hour * 60) + 30
+
+    if re.search(r"반\s*시간", duration_text):
+        return 30
+
+    match = re.search(rf"({NUMBER_PATTERN})\s*시간(?:\s*({NUMBER_PATTERN})\s*분)?", duration_text)
+    if match:
+        hour = parse_korean_number(match.group(1))
+        minute = parse_korean_number(match.group(2)) if match.group(2) else 0
+
+        if hour is not None and minute is not None:
+            return (hour * 60) + minute
+
+    match = re.search(rf"({NUMBER_PATTERN})\s*분(?:\s*(?:동안|간))?", duration_text)
+    if match:
+        minute = parse_korean_number(match.group(1))
+        if minute is not None:
+            return minute
 
     return 60  # 기본값
 

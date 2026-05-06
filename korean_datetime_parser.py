@@ -11,6 +11,59 @@ WEEKDAY_MAP = {
     "일요일": 6,
 }
 
+KOREAN_NUMBER_MAP = {
+    "영": 0,
+    "공": 0,
+    "한": 1,
+    "하나": 1,
+    "일": 1,
+    "두": 2,
+    "둘": 2,
+    "이": 2,
+    "세": 3,
+    "셋": 3,
+    "삼": 3,
+    "네": 4,
+    "넷": 4,
+    "사": 4,
+    "다섯": 5,
+    "오": 5,
+    "여섯": 6,
+    "육": 6,
+    "일곱": 7,
+    "칠": 7,
+    "여덟": 8,
+    "팔": 8,
+    "아홉": 9,
+    "구": 9,
+    "열": 10,
+    "열한": 11,
+    "열하나": 11,
+    "열두": 12,
+    "열둘": 12,
+}
+
+TIME_PATTERN = r"(\d{1,2}|[가-힣]+)\s*시(?!간)(?:\s*(?:(\d{1,2}|[가-힣]+)\s*분|반))?"
+
+
+def parse_korean_number(value):
+    value = value.strip()
+    if value.isdigit():
+        return int(value)
+
+    if value in KOREAN_NUMBER_MAP:
+        return KOREAN_NUMBER_MAP[value]
+
+    if "십" in value:
+        tens_text, ones_text = value.split("십", 1)
+        tens = 1 if tens_text == "" else KOREAN_NUMBER_MAP.get(tens_text)
+        ones = 0 if ones_text == "" else KOREAN_NUMBER_MAP.get(ones_text)
+
+        if tens is not None and ones is not None:
+            return tens * 10 + ones
+
+    return None
+
 
 def _date_or_none(year, month, day):
     try:
@@ -100,6 +153,35 @@ def has_date_expression(text):
     return any(re.search(pattern, text) for pattern in date_patterns)
 
 
+def _parse_time(text):
+    if "자정" in text:
+        return 0, 0
+    if "정오" in text:
+        return 12, 0
+
+    hour = 9
+    minute = 0
+    time_match = re.search(TIME_PATTERN, text)
+
+    if not time_match:
+        return hour, minute
+
+    parsed_hour = parse_korean_number(time_match.group(1))
+    if parsed_hour is None:
+        return hour, minute
+
+    hour = parsed_hour
+
+    if time_match.group(2):
+        parsed_minute = parse_korean_number(time_match.group(2))
+        if parsed_minute is not None:
+            minute = parsed_minute
+    elif "반" in time_match.group(0):
+        minute = 30
+
+    return hour, minute
+
+
 def parse_korean_datetime(text: str, now=None): #날짜, 요일, 시간 처리용 함수
     now = now or datetime.now()
     date = now.date()
@@ -133,8 +215,7 @@ def parse_korean_datetime(text: str, now=None): #날짜, 요일, 시간 처리�
     elif weekday is not None:
         date = _next_weekday_from(date, weekday)
 
-    hour = 9  # 기본값
-    minute = 0
+    hour, minute = _parse_time(text)
 
     # "오전/오후"
     am_pm = None
@@ -142,14 +223,6 @@ def parse_korean_datetime(text: str, now=None): #날짜, 요일, 시간 처리�
         am_pm = "AM"
     elif "오후" in text or "점심" in text or "저녁" in text:
         am_pm = "PM"
-
-    # "3시", "3시 30분"
-    time_match = re.search(r'(\d{1,2})시(?:\s*(\d{1,2})분)?', text)
-
-    if time_match:
-        hour = int(time_match.group(1))
-        if time_match.group(2):
-            minute = int(time_match.group(2))
 
     # 오전/오후 보정
     if am_pm == "PM" and hour < 12:

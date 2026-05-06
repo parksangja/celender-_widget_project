@@ -76,6 +76,52 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(result["date"], "2026-06-10")
         self.assertEqual(result["time"], "13:00")
 
+    def test_half_hour_time(self):
+        result = parse("오늘 오후 3시 반 회의 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "회의")
+        self.assertEqual(result["time"], "15:30")
+        self.assertEqual(result["duration"], 60)
+
+    def test_korean_hour_word(self):
+        result = parse("오늘 오후 세 시 회의 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "회의")
+        self.assertEqual(result["time"], "15:00")
+
+    def test_evening_time(self):
+        result = parse("오늘 저녁 7시 운동 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "운동")
+        self.assertEqual(result["time"], "19:00")
+
+    def test_hour_and_half_duration(self):
+        result = parse("오늘 오후 2시 회의 1시간 반 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "회의")
+        self.assertEqual(result["time"], "14:00")
+        self.assertEqual(result["duration"], 90)
+
+    def test_minute_duration_with_while(self):
+        result = parse("오늘 오후 2시 회의 90분 동안 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "회의")
+        self.assertEqual(result["time"], "14:00")
+        self.assertEqual(result["duration"], 90)
+
+    def test_time_minute_is_not_duration(self):
+        result = parse("오늘 오후 3시 30분 회의 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "회의")
+        self.assertEqual(result["time"], "15:30")
+        self.assertEqual(result["duration"], 60)
+
 
 if __name__ == "__main__":
     unittest.main()
