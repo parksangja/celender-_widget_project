@@ -15,13 +15,13 @@ class CalendarEngine:                               #self를 사용하는 이유
     def _generate_id(self):                           #ㅅㅂ 이 함수가 왜 있는거임? 이놈이 이벤트 아이디 생성해서 self값을 정하는건가? -> 이벤트의 id를 정하는 함수인듯?
         if not self.events:                           #리스트가 빈 리스트일때, 함수는 1을 반환한다. 즉 첫번째 이벤트의 id를 1로 정해 반환한다.
             return 1
-        return max(e["id"] for e in self.events) + 1  #리스트가 빈 리스트가 아니라면, 이벤트 리스트의 id 중 최댓값에 1을 더해 반환한다.(json파일에서 가져오는듯?)
+        return max(e["id"] for e in self.events) + 1  #리스트가 빈 리스트가 아니라면, 이벤트 리스트의 id 중 최댓값에 1을 더해 반환한다.(json파일에서 가져오는듯?) -> 최초 이벤트가 아니라면 기존 이벤트의 id에 1을 더해 id를 정한다
 
     def _parse_datetime(self, date_str, time_str):                           #날짜와 시간을 가져오는 함수
         return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M") #이 함수를 호출하면, 받은 이벤트의 날짜와 시간을 출력한다.
 
-    def _to_dict(self, event):     #이벤트에 대한 상세정보를 불러오는 함수이며 이벤트의 id, 제목, 날짜 및 시간, 기간, 태그, 우선순위를 불러온다.
-        return {                   #이벤트는 딕셔너리 형태로 저장함.
+    def _to_dict(self, event):     #이벤트에 대한 상세정보를 불러오는 함수이며 JSON형식으로 저장된 이벤트의 id, 제목, 날짜 및 시간, 기간, 태그, 우선순위를 불러온다.
+        return {                   #이벤트는 딕셔너리 형태로 반환함.
             "id": event["id"],
             "title": event["title"],
             "date": event["start"].strftime("%Y-%m-%d"),
@@ -57,17 +57,16 @@ class CalendarEngine:                               #self를 사용하는 이유
     # 핵심 기능
     # ------------------------
 
-    def add_event(self, title, date, time, duration=60, tag=None, priority=None):
-        start = self._parse_datetime(date, time)
-        end = start + timedelta(minutes=duration)
+    def add_event(self, title, date, time, duration=60, tag=None, priority=None): #이벤트 저장 함수
+        start = self._parse_datetime(date, time)                                  #시작 시간은 받아온 날짜와 시간을 _parse_datetime에 맞추어 정함
+        end = start + timedelta(minutes=duration)                                 #끝나는 시간은 duration을 시작시간에 timedelta를 이용해 더해서 정함
 
-        # 🔥 충돌 검사
-        for e in self.events:
+        for e in self.events:                                          #시간 충돌 검사를 위해 추가된 이벤트를 기존 이벤트들과 비교
             if not (end <= e["start"] or start >= e["end"]):
-                raise ValueError(f"Event conflict with id={e['id']}")
-
-        event = {
-            "id": self._generate_id(),
+                raise ValueError(f"Event conflict with id={e['id']}")  #만약 시간이 겹치면 충돌 이벤트의 id를 출력하며 오류가 발생한다고 출력
+            
+        event = {                                                      #충돌검사 통과시, 저장 형식에 맞추어 저장
+            "id": self._generate_id(), 
             "title": title,
             "start": start,
             "end": end,
@@ -77,37 +76,37 @@ class CalendarEngine:                               #self를 사용하는 이유
         }
 
         self.events.append(event)
-        self.events.sort(key=lambda x: x["start"])
-        self._save()
+        self.events.sort(key=lambda x: x["start"]) #시작시간 순서로 이벤트 정렬
+        self._save()                               #정렬 후 저장
 
         return self._to_dict(event)
 
-    def list_events(self, date=None):
+    def list_events(self, date=None):                                #이벤트 리스트 반환 함수
         if date:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date()
-            result = [
-                self._to_dict(e)
+            target_date = datetime.strptime(date, "%Y-%m-%d").date() #만약 찾는 날이 있다면,
+            result = [                                               #그 날에 있는 이벤트들을 반환
+                self._to_dict(e)                                     #이벤트들을 _to_dict 함수를 거쳐 딕셔너리 형태로 만듬
                 for e in self.events
-                if e["start"].date() == target_date
+                if e["start"].date() == target_date                  #함수에 넣을 e는 원하는 날짜와 같은 날짜에 있는 모든 이벤트들임
             ]
         else:
-            result = [self._to_dict(e) for e in self.events]
+            result = [self._to_dict(e) for e in self.events]         #찾는 날이 없다면 전체 일정 반환
 
         return result
 
-    def delete_event(self, event_id):
+    def delete_event(self, event_id):                                 #이벤트 삭제 함수
         before = len(self.events)
-        self.events = [e for e in self.events if e["id"] != event_id]
+        self.events = [e for e in self.events if e["id"] != event_id] #삭제할 이벤트의 id와 다른 이벤트는 남김, 같다면 남기지 않음
 
-        if len(self.events) == before:
-            raise ValueError("Event not found")
+        if len(self.events) == before:                                #이벤트 삭제 검사
+            raise ValueError("Event not found")                       #만약 삭제 전 이벤트와 개수가 같다면 오류 알리기
 
         self._save()
         return True
 
-    def update_event(self, event_id, **kwargs):
+    def update_event(self, event_id, **kwargs):                             #이벤트 수정 함수
         for e in self.events:
-            if e["id"] == event_id:
+            if e["id"] == event_id:                                         #수정할 이벤트의 id와 같은 이벤트 발견 시, **kwargs로 받아와 수정할 값만 수정
                 title = kwargs.get("title", e["title"])
                 date = kwargs.get("date", e["start"].strftime("%Y-%m-%d"))
                 time = kwargs.get("time", e["start"].strftime("%H:%M"))
@@ -115,18 +114,17 @@ class CalendarEngine:                               #self를 사용하는 이유
                 tag = kwargs.get("tag", e.get("tag"))
                 priority = kwargs.get("priority", e.get("priority"))
 
-                # 기존 제거 후 재검사
-                self.events.remove(e)
+                self.events.remove(e)                                        #수정 전 이벤트 삭제
 
                 try:
                     updated = self.add_event(
-                        title, date, time, duration, tag, priority
-                    )
-                except Exception as err:
+                        title, date, time, duration, tag, priority           #위에 수정한 값을 가지고 add_event함수에 넣어 추가
+                    )                                                        #add_event를 거치는 이유는 충돌 검사를 위해서 거침
+                except Exception as err:                                     #만약 오류 발생시,
                     # 실패 시 복구
-                    self.events.append(e)
+                    self.events.append(e)                                    #기존 이벤트 복구 및 오류 알림
                     raise err
 
                 return updated
 
-        raise ValueError("Event not found")
+        raise ValueError("Event not found")                                  #찾는 이벤트의 id가 없다면 오류 알림
