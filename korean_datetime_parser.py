@@ -1,6 +1,9 @@
+##한국어 명렁을 처리하기 위한 파일
+#
 import re
 from datetime import datetime, timedelta
 
+#"몇요일"을 컴퓨터가 알기 쉽게 변환
 WEEKDAY_MAP = {
     "월요일": 0,
     "화요일": 1,
@@ -11,6 +14,7 @@ WEEKDAY_MAP = {
     "일요일": 6,
 }
 
+#위와 마친가지로 한국어로 표현된 숫자들을 정수로 변환
 KOREAN_NUMBER_MAP = {
     "영": 0,
     "공": 0,
@@ -43,15 +47,16 @@ KOREAN_NUMBER_MAP = {
     "열둘": 12,
 }
 
+#정규식에 따라 패턴을 정해주는 듯?(자세한거는 더 공부하기)
 TIME_PATTERN = r"(\d{1,2}|[가-힣]+)\s*시(?!간)(?:\s*(?:(\d{1,2}|[가-힣]+)\s*분|반))?"
 
 
 def parse_korean_number(value):
-    value = value.strip()
-    if value.isdigit():
+    value = value.strip()       #가져온 인수의 공백 제거
+    if value.isdigit():         #숫자면 그냥 int씌워서 반환
         return int(value)
 
-    if value in KOREAN_NUMBER_MAP:
+    if value in KOREAN_NUMBER_MAP:       #위 딕셔너리에 있는 글자면 그에 맞게 반환
         return KOREAN_NUMBER_MAP[value]
 
     if "십" in value:
@@ -137,7 +142,7 @@ def _parse_written_date(text, now):
     return None
 
 
-def has_date_expression(text):
+def has_date_expression(text): 
     if any(k in text for k in ["오늘", "내일", "모레", "글피", "이번주", "다음주", "이번달", "이번 달", "다음달", "다음 달"]):
         return True
     if _find_weekday(text) is not None:
@@ -153,7 +158,7 @@ def has_date_expression(text):
     return any(re.search(pattern, text) for pattern in date_patterns)
 
 
-def _parse_time(text):
+def _parse_time(text): #시간 처리 함수
     if "자정" in text:
         return 0, 0
     if "정오" in text:
@@ -161,9 +166,9 @@ def _parse_time(text):
 
     hour = 9
     minute = 0
-    time_match = re.search(TIME_PATTERN, text)
+    time_match = re.search(TIME_PATTERN, text) #받아온 text를 위의 TIME_PATTERN에 맞추어 시간을 찾음
 
-    if not time_match:
+    if not time_match:                         #패턴에 따라 찾은 시간이 없다면 기본 설정 시간과 분을 반환
         return hour, minute
 
     parsed_hour = parse_korean_number(time_match.group(1))
@@ -217,7 +222,7 @@ def parse_korean_datetime(text: str, now=None): #날짜, 요일, 시간 처리�
 
     hour, minute = _parse_time(text)
 
-    # "오전/오후"
+    # 오전/오후 처리
     am_pm = None
     if "오전" in text or "아침" in text:
         am_pm = "AM"

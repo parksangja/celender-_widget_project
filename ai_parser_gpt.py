@@ -1,5 +1,5 @@
-import re
-from korean_datetime_parser import (
+import re                             #문자열 처리 표준 라이브러리
+from korean_datetime_parser import (  #korean_datetime_parser 파일에서 한국어를 해석하기 위해 만든 상수와 함수를 가져온다
     TIME_PATTERN,
     WEEKDAY_MAP,
     has_date_expression,
@@ -8,10 +8,11 @@ from korean_datetime_parser import (
 )
 
 def to_engine_format(dt): #엔진과 연결하기 위한 함수(엔진과 출력형식 맞추는 용도)
-    if not hasattr(dt, "strftime"):
+    if not hasattr(dt, "strftime"): #hasattr 함수: dt라는 오브젝트에 "strftime"라는 속성이 있는지 검사하는 함수 (이와 유사한 함수로 getattr, setattr이 있음)
         raise TypeError(f"dt is not datetime: {type(dt)}")
     return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M")
 
+#시간, 명령 해석을 위한 문자열 리스트들
 DATE_WORDS = ["오늘", "내일", "모레", "글피", "이번주", "다음주", "이번달", "이번 달", "다음달", "다음 달"]
 TIME_WORDS = ["오전", "오후", "아침", "점심", "저녁"]
 ADD_WORDS = ["추가해줘", "추가", "잡아줘", "잡아", "예약해줘", "예약", "넣어줘", "넣어", "등록해줘", "등록"]
@@ -23,15 +24,15 @@ PARTICLES = ["에서", "으로", "에게", "한테", "을", "를", "에", "랑",
 NUMBER_PATTERN = r"\d+|[가-힣]+"
 
 
-def _remove_words(text, words):
-    for word in sorted(words, key=len, reverse=True):
-        text = text.replace(word, "")
+def _remove_words(text, words):                         #단어 삭제 함수
+    for word in sorted(words, key=len, reverse=True):   #길이가 긴 순서대로 정렬(길이 짧은 순으로 정렬 후 리버스로 뒤집음)
+        text = text.replace(word, "")                   #단어를 빈 문자열로 교체해 삭제
     return text
 
 def extract_title(text: str): #제목 추출용 함수
     original = text
 
-    # 기간 표현을 시간 표현보다 먼저 지워야 "2시간"에서 "간"이 남지 않는다.
+    #text가 아래 작성된 페턴과 일치되면 대체 문자열으로 교체한다. (대충 re.sub()의 기능을 작성했음. 자세한거는 더 공부하기)
     text = re.sub(rf"({NUMBER_PATTERN})\s*시간\s*반", " ", text)
     text = re.sub(r"반\s*시간", " ", text)
     text = re.sub(rf"({NUMBER_PATTERN})\s*시간(?:\s*({NUMBER_PATTERN})\s*분)?", " ", text)
@@ -44,6 +45,7 @@ def extract_title(text: str): #제목 추출용 함수
     text = re.sub(r"(?<!\d)\d{1,2}[/.]\d{1,2}(?!\d)", " ", text)
     text = re.sub(r"(?<!\d)\d{1,2}\s*일(?!차)", " ", text)
 
+    #text에서 위에 있는 문자열 리스트에 따라 시간, 명령, 조사 등을 삭제
     text = _remove_words(text, DATE_WORDS)
     text = _remove_words(text, list(WEEKDAY_MAP.keys()))
     text = _remove_words(text, TIME_WORDS)
@@ -95,7 +97,7 @@ def extract_duration(text: str): #이벤트 지속시간 처리용 함수
         if minute is not None:
             return minute
 
-    return 60  # 기본값
+    return 60 
 
 def build_delete_condition(text: str, now=None):
     condition = {}

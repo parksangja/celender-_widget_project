@@ -1,3 +1,5 @@
+##UI파일
+
 import sys
 
 from PyQt6.QtCore import QDate, Qt, QTime
@@ -20,12 +22,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+#UI에 표현하기 위해 만든거 다 가져오기
 from ai_parser_gpt import parse
 from calendar_engine import CalendarEngine
 from executor import execute
 
 
-class ExpandingCommandInput(QTextEdit):
+class ExpandingCommandInput(QTextEdit): #확대 축소 처리용
     def __init__(self):
         super().__init__()
 
@@ -46,7 +49,7 @@ class ExpandingCommandInput(QTextEdit):
         self.setFixedHeight(next_height)
 
 
-class ManualEventDialog(QDialog):
+class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나오는 요소들
     def __init__(self, selected_date, parent=None):
         super().__init__(parent)
 
@@ -134,7 +137,7 @@ class ManualEventDialog(QDialog):
         super().accept()
 
 
-class CalendarWidget(QWidget):
+class CalendarWidget(QWidget): #메인 UI 구현
     def __init__(self):
         super().__init__()
 
@@ -145,7 +148,7 @@ class CalendarWidget(QWidget):
         self.init_ui()
         self.refresh_events()
 
-    def init_ui(self):
+    def init_ui(self): #초기 설정
         self.setWindowTitle("Mini Calendar Widget")
         self.setMinimumSize(900, 600)
         self.resize(960, 600)
@@ -167,7 +170,7 @@ class CalendarWidget(QWidget):
         self.setStyleSheet(self._style_sheet())
         self.show()
 
-    def _build_ai_panel(self):
+    def _build_ai_panel(self): #UI에 있는 3개 구역 중, 첫번째 구역인 AI입력 구역 붙이는 함수
         panel = QFrame()
         panel.setObjectName("panel")
         panel.setMinimumWidth(280)
@@ -207,7 +210,7 @@ class CalendarWidget(QWidget):
         panel.setLayout(layout)
         return panel
 
-    def _build_calendar_panel(self):
+    def _build_calendar_panel(self): #2번째 구역, 캘린더 붙이는 함수
         panel = QFrame()
         panel.setObjectName("calendarPanel")
         panel.setMinimumWidth(380)
@@ -232,7 +235,7 @@ class CalendarWidget(QWidget):
         self.update_month_label()
         return panel
 
-    def _build_events_panel(self):
+    def _build_events_panel(self): #3번째 구역, 이벤트 리스트 있는 구역 붙이는 함수
         panel = QFrame()
         panel.setObjectName("panel")
         panel.setMinimumWidth(210)
@@ -265,7 +268,7 @@ class CalendarWidget(QWidget):
         panel.setLayout(layout)
         return panel
 
-    def _style_sheet(self):
+    def _style_sheet(self): #UI디자인
         return """
             QWidget {
                 background-color: #101114;
