@@ -3,6 +3,8 @@
 import re
 from datetime import datetime, timedelta
 
+from korean_calendar_utils import lunar_to_solar
+
 #"몇요일"을 컴퓨터가 알기 쉽게 변환
 WEEKDAY_MAP = {
     "월요일": 0,
@@ -48,7 +50,8 @@ KOREAN_NUMBER_MAP = {
 }
 
 #정규식에 따라 패턴을 정해주는 듯?(자세한거는 더 공부하기)
-TIME_PATTERN = r"(\d{1,2}|[가-힣]+)\s*시(?!간)(?:\s*(?:(\d{1,2}|[가-힣]+)\s*분|반))?"
+KOREAN_NUMBER_WORD_PATTERN = "|".join(sorted(KOREAN_NUMBER_MAP, key=len, reverse=True))
+TIME_PATTERN = rf"(?<![가-힣0-9])(\d{{1,2}}|{KOREAN_NUMBER_WORD_PATTERN})\s*시(?!간)(?:\s*(?:(\d{{1,2}}|{KOREAN_NUMBER_WORD_PATTERN})\s*분|반))?"
 
 
 def parse_korean_number(value):
@@ -106,6 +109,29 @@ def _weekday_in_next_week(base_date, weekday):
 
 
 def _parse_written_date(text, now):
+    lunar_match = re.search(r"(\d{4})\s*년\s*음력\s*(윤)?\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일", text)
+    if lunar_match:
+        year = int(lunar_match.group(1))
+        leap_month = lunar_match.group(2) is not None
+        month = int(lunar_match.group(3))
+        day = int(lunar_match.group(4))
+        return lunar_to_solar(year, month, day, leap_month)
+
+    lunar_match = re.search(r"음력\s*(\d{4})\s*년\s*(윤)?\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일", text)
+    if lunar_match:
+        year = int(lunar_match.group(1))
+        leap_month = lunar_match.group(2) is not None
+        month = int(lunar_match.group(3))
+        day = int(lunar_match.group(4))
+        return lunar_to_solar(year, month, day, leap_month)
+
+    lunar_match = re.search(r"음력\s*(윤)?\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일", text)
+    if lunar_match:
+        leap_month = lunar_match.group(1) is not None
+        month = int(lunar_match.group(2))
+        day = int(lunar_match.group(3))
+        return lunar_to_solar(now.year, month, day, leap_month)
+
     match = re.search(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일", text)
     if match:
         year, month, day = map(int, match.groups())
@@ -143,7 +169,7 @@ def _parse_written_date(text, now):
 
 
 def has_date_expression(text): 
-    if any(k in text for k in ["오늘", "내일", "모레", "글피", "이번주", "다음주", "이번달", "이번 달", "다음달", "다음 달"]):
+    if any(k in text for k in ["오늘", "내일", "모레", "글피", "이번주", "다음주", "이번달", "이번 달", "다음달", "다음 달", "음력"]):
         return True
     if _find_weekday(text) is not None:
         return True
@@ -154,6 +180,9 @@ def has_date_expression(text):
         r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}",
         r"(?<!\d)\d{1,2}[/.]\d{1,2}(?!\d)",
         r"(?<!\d)\d{1,2}\s*일(?!차)",
+        r"\d{4}\s*년\s*음력\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일",
+        r"음력\s*\d{4}\s*년\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일",
+        r"음력\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일",
     ]
     return any(re.search(pattern, text) for pattern in date_patterns)
 

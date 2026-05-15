@@ -3,6 +3,71 @@
 PC 바탕화면에서 사용할 수 있는 미니 캘린더 위젯 프로젝트입니다.
 PyQt6로 간단한 캘린더 UI를 만들고, 일정 데이터는 `events.json`에 저장합니다.
 
+## 프로젝트 목적
+
+Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 캘린더 위젯을 만드는 것이 목표입니다.
+현재 버전은 캘린더 UI, 일정 저장 엔진, 한국어 자연어 파서, 직접 일정 추가 기능을 포함한 중간 결과물입니다.
+
+## 현재 구현된 기능
+
+- PyQt6 기반 3분할 위젯 UI
+- 왼쪽 AI 입력 영역
+- 가운데 캘린더 영역
+- 오른쪽 오늘/선택 날짜 일정 목록
+- 한국어 자연어 일정 추가/조회/삭제 명령 파싱
+- 일정 직접 추가 버튼
+- JSON 파일 기반 일정 저장
+- 일정 시간 충돌 검사
+- 음력 날짜를 양력 날짜로 변환
+- 대한민국 공휴일 달력 표시
+- 시작일만 있는 무기한 기간 일정
+- 파서/실행기 테스트
+
+## 파일 구조
+
+```text
+celender-_widget_project/
+|
+|-- main.py                    # PyQt6 UI 실행 파일
+|-- calendar_engine.py          # 일정 저장/조회/삭제/수정 엔진
+|-- ai_parser_gpt.py            # 한국어 자연어 명령 파서
+|-- korean_datetime_parser.py   # 한국어 날짜/시간 해석
+|-- korean_calendar_utils.py    # 음력 변환과 대한민국 공휴일 계산
+|-- executor.py                 # 파서 명령을 캘린더 엔진에 실행
+|
+|-- test_parser.py              # 자연어 파서 테스트
+|-- test_executor.py            # 실행기 테스트
+|-- test_calendar_features.py   # 음력/공휴일/기간 일정 테스트
+|
+|-- requirements.txt            # 필요한 Python 패키지 목록
+|-- setup_env.bat               # Windows 환경 준비용 실행 파일
+|-- run_calendar.bat            # Windows 앱 실행 파일
+|-- make_submission.bat         # 제출용 폴더 생성 파일
+|-- README.md                   # 프로젝트 설명과 실행 방법
+|-- SUBMISSION.md               # 제출 전 확인용 문서
+|-- 프로젝트 개요.md             # 개발 동기와 초기 기획
+```
+
+## 제출 시 제외할 파일
+
+아래 파일과 폴더는 자동 생성되거나 개인 실행 데이터이므로 제출물에 포함하지 않습니다.
+
+```text
+.venv/
+__pycache__/
+events.json
+*.pyc
+.git/
+```
+
+제출용 폴더를 자동으로 만들고 싶다면 아래 파일을 실행합니다.
+
+```powershell
+make_submission.bat
+```
+
+실행 후 만들어지는 `calendar_widget_submission` 폴더만 제출하면 됩니다.
+
 ## 실행 환경
 
 - Python 3.12 이상
@@ -57,3 +122,9 @@ python main.py
 ## Git 메모
 
 `__pycache__`, `.venv`, `events.json` 같은 자동 생성 파일이나 개인 실행 데이터는 Git에 올리지 않도록 `.gitignore`에 등록되어 있습니다.
+
+## 테스트 실행
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py
+```

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import json
 import os
 
@@ -20,9 +20,43 @@ class CalendarEngine:                               #self를 사용하는 이유
     def _parse_datetime(self, date_str, time_str):                           #날짜와 시간을 가져오는 함수
         return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M") #이 함수를 호출하면, 받은 이벤트의 날짜와 시간을 출력한다.
 
+    def _parse_date(self, date_str):
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+
+    def _sort_key(self, event):
+        if event.get("type") == "period":
+            return datetime.combine(event["start_date"], time.min)
+
+        return event["start"]
+
+    def _period_active_on(self, event, target_date):
+        start_date = event["start_date"]
+        end_date = event.get("end_date")
+
+        if end_date is None:
+            return target_date >= start_date
+
+        return start_date <= target_date <= end_date
+
     def _to_dict(self, event):     #이벤트에 대한 상세정보를 불러오는 함수이며 JSON형식으로 저장된 이벤트의 id, 제목, 날짜 및 시간, 기간, 태그, 우선순위를 불러온다.
+        if event.get("type") == "period":
+            end_date = event.get("end_date")
+            return {
+                "id": event["id"],
+                "type": "period",
+                "title": event["title"],
+                "date": event["start_date"].strftime("%Y-%m-%d"),
+                "start_date": event["start_date"].strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d") if end_date else None,
+                "time": None,
+                "duration": None,
+                "tag": event.get("tag"),
+                "priority": event.get("priority"),
+            }
+
         return {                   #이벤트는 딕셔너리 형태로 반환함.
             "id": event["id"],
+            "type": "timed",
             "title": event["title"],
             "date": event["start"].strftime("%Y-%m-%d"),
             "time": event["start"].strftime("%H:%M"),
@@ -42,9 +76,22 @@ class CalendarEngine:                               #self를 사용하는 이유
         with open(self.storage_path, "r", encoding="utf-8") as f:  #저장 경로가 존재하면, 저장 경로를 한글로 받아와 열고 아래 명령을 실행 후 닫는다.
             data = json.load(f)                                    #data = 저장한 json파일 (f는 아마 _save()함수에 있는 f아닐까?)
             for d in data:                                         #data 파일 속 요소에 대해 반복
+                if d.get("type") == "period":
+                    self.events.append({
+                        "id": d["id"],
+                        "type": "period",
+                        "title": d["title"],
+                        "start_date": self._parse_date(d.get("start_date", d["date"])),
+                        "end_date": self._parse_date(d["end_date"]) if d.get("end_date") else None,
+                        "tag": d.get("tag"),
+                        "priority": d.get("priority"),
+                    })
+                    continue
+
                 start = self._parse_datetime(d["date"], d["time"]) #start = _parse_datetime()함수를 실행해 가져온 날과 시간
                 self.events.append({                               #프로그램 실행 시 가져온 events 라는 리스트에 추가함. (start, end 제외하면 json파일이랑 거의 비슷하게 추가함.)
                     "id": d["id"],
+                    "type": "timed",
                     "title": d["title"],
                     "start": start,                                  #start는 위에 있는 지역 변수 가져옴
                     "end": start + timedelta(minutes=d["duration"]), #끝은 시작에 timedelta 함수를 써서, 지속시간을 더한다.
@@ -62,11 +109,15 @@ class CalendarEngine:                               #self를 사용하는 이유
         end = start + timedelta(minutes=duration)                                 #끝나는 시간은 duration을 시작시간에 timedelta를 이용해 더해서 정함
 
         for e in self.events:                                          #시간 충돌 검사를 위해 추가된 이벤트를 기존 이벤트들과 비교
+            if e.get("type") == "period":
+                continue
+
             if not (end <= e["start"] or start >= e["end"]):
                 raise ValueError(f"Event conflict with id={e['id']}")  #만약 시간이 겹치면 충돌 이벤트의 id를 출력하며 오류가 발생한다고 출력
             
         event = {                                                      #충돌검사 통과시, 저장 형식에 맞추어 저장
             "id": self._generate_id(), 
+            "type": "timed",
             "title": title,
             "start": start,
             "end": end,
@@ -76,18 +127,45 @@ class CalendarEngine:                               #self를 사용하는 이유
         }
 
         self.events.append(event)
-        self.events.sort(key=lambda x: x["start"]) #시작시간 순서로 이벤트 정렬
+        self.events.sort(key=self._sort_key)       #시작시간 순서로 이벤트 정렬
         self._save()                               #정렬 후 저장
+
+        return self._to_dict(event)
+
+    def add_period_event(self, title, start_date, end_date=None, tag=None, priority=None):
+        start = self._parse_date(start_date)
+        end = self._parse_date(end_date) if end_date else None
+
+        if end is not None and end < start:
+            raise ValueError("Period end date must be after start date")
+
+        event = {
+            "id": self._generate_id(),
+            "type": "period",
+            "title": title,
+            "start_date": start,
+            "end_date": end,
+            "tag": tag,
+            "priority": priority,
+        }
+
+        self.events.append(event)
+        self.events.sort(key=self._sort_key)
+        self._save()
 
         return self._to_dict(event)
 
     def list_events(self, date=None):                                #이벤트 리스트 반환 함수
         if date:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date() #만약 찾는 날이 있다면,
+            target_date = self._parse_date(date)                    #만약 찾는 날이 있다면,
             result = [                                               #그 날에 있는 이벤트들을 반환
                 self._to_dict(e)                                     #이벤트들을 _to_dict 함수를 거쳐 딕셔너리 형태로 만듬
                 for e in self.events
-                if e["start"].date() == target_date                  #함수에 넣을 e는 원하는 날짜와 같은 날짜에 있는 모든 이벤트들임
+                if (
+                    e.get("type") == "period" and self._period_active_on(e, target_date)
+                ) or (
+                    e.get("type") != "period" and e["start"].date() == target_date
+                )
             ]
         else:
             result = [self._to_dict(e) for e in self.events]         #찾는 날이 없다면 전체 일정 반환

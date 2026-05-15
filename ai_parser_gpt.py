@@ -19,8 +19,9 @@ ADD_WORDS = ["추가해줘", "추가", "잡아줘", "잡아", "예약해줘", "�
 DELETE_WORDS = ["삭제해줘", "삭제", "지워줘", "지워", "없애줘", "없애"]
 LIST_WORDS = ["보여줘", "보여", "조회해줘", "조회", "확인해줘", "확인"]
 GENERAL_WORDS = ["일정", "스케줄"]
+PERIOD_WORDS = ["무기한", "계속"]
 
-PARTICLES = ["에서", "으로", "에게", "한테", "을", "를", "에", "랑", "과", "와"]
+PARTICLES = ["에서", "으로", "에게", "한테", "부터", "까지", "을", "를", "에", "랑", "과", "와"]
 NUMBER_PATTERN = r"\d+|[가-힣]+"
 
 
@@ -38,6 +39,9 @@ def extract_title(text: str): #제목 추출용 함수
     text = re.sub(rf"({NUMBER_PATTERN})\s*시간(?:\s*({NUMBER_PATTERN})\s*분)?", " ", text)
     text = re.sub(rf"({NUMBER_PATTERN})\s*분(?:\s*(?:동안|간))?", " ", text)
     text = re.sub(TIME_PATTERN, " ", text)
+    text = re.sub(r"\d{4}\s*년\s*음력\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
+    text = re.sub(r"음력\s*\d{4}\s*년\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
+    text = re.sub(r"음력\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
     text = re.sub(r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
     text = re.sub(r"\d{1,2}\s*월\s*\d{1,2}\s*일", " ", text)
     text = re.sub(r"(?:다음\s*달|다음달|이번\s*달|이번달)\s*\d{1,2}\s*일", " ", text)
@@ -51,6 +55,7 @@ def extract_title(text: str): #제목 추출용 함수
     text = _remove_words(text, TIME_WORDS)
     text = _remove_words(text, ADD_WORDS + DELETE_WORDS + LIST_WORDS)
     text = _remove_words(text, GENERAL_WORDS)
+    text = _remove_words(text, PERIOD_WORDS)
 
     words = text.split()
     cleaned_words = []
@@ -59,7 +64,8 @@ def extract_title(text: str): #제목 추출용 함수
         for p in PARTICLES:
             if w.endswith(p):
                 w = w[:-len(p)]
-        cleaned_words.append(w)
+        if w:
+            cleaned_words.append(w)
 
     text = " ".join(cleaned_words).strip()  
 
@@ -121,6 +127,12 @@ def detect_action(text: str): #명령 행위 판단용 함수
         return "list"
     return "unknown"
 
+def is_period_command(text: str):
+    if "부터" not in text:
+        return False
+
+    return "기간" in text or any(word in text for word in PERIOD_WORDS)
+
 def parse(text: str, now=None): #메인 파서
     action = detect_action(text)
 
@@ -128,6 +140,16 @@ def parse(text: str, now=None): #메인 파서
     date, time = to_engine_format(dt)
 
     if action == "add":
+        if is_period_command(text):
+            return {
+                "action": "add_period",
+                "title": extract_title(text),
+                "start_date": date,
+                "end_date": None,
+                "tag": "period",
+                "priority": None,
+            }
+
         return {
             "action": "add",
             "title": extract_title(text),

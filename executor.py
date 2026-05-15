@@ -1,5 +1,6 @@
 #명령 실행 파일
 #파서가 만든 명령을 엔진에 연결하기 위해 존재함. 이벤트 추가, 삭제, 목록 확인 명령을 실행
+from datetime import datetime
 
 def _require_fields(command, fields): #명령에 field가 없으면 예외 처리
     missing = [field for field in fields if field not in command]
@@ -8,8 +9,18 @@ def _require_fields(command, fields): #명령에 field가 없으면 예외 처�
 
 
 def _matches_condition(event, condition): #실제 이벤트와 명령 조건의 상태가 맞지 않으면 False처리
-    if "date" in condition and event["date"] != condition["date"]:
-        return False
+    if "date" in condition:
+        if event.get("type") == "period":
+            target_date = datetime.strptime(condition["date"], "%Y-%m-%d").date()
+            start_date = datetime.strptime(event["start_date"], "%Y-%m-%d").date()
+            end_date = datetime.strptime(event["end_date"], "%Y-%m-%d").date() if event.get("end_date") else None
+
+            if target_date < start_date:
+                return False
+            if end_date is not None and target_date > end_date:
+                return False
+        elif event["date"] != condition["date"]:
+            return False
 
     if "time" in condition and event["time"] != condition["time"]:
         return False
@@ -30,6 +41,16 @@ def execute(command, engine): #실행 함수
             command["date"],
             command["time"],
             command.get("duration", 60),
+            command.get("tag"),
+            command.get("priority"),
+        )
+
+    if action == "add_period":
+        _require_fields(command, ["title", "start_date"])
+        return engine.add_period_event(
+            command["title"],
+            command["start_date"],
+            command.get("end_date"),
             command.get("tag"),
             command.get("priority"),
         )

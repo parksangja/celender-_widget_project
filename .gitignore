@@ -9,3 +9,5 @@ env/
 .env
 
 events.json
+
+calendar_widget_submission/

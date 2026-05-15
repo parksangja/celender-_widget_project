@@ -3,6 +3,7 @@
 import sys
 
 from PyQt6.QtCore import QDate, Qt, QTime
+from PyQt6.QtGui import QBrush, QColor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QCalendarWidget,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
 from ai_parser_gpt import parse
 from calendar_engine import CalendarEngine
 from executor import execute
+from korean_calendar_utils import get_korean_holidays
 
 
 class ExpandingCommandInput(QTextEdit): #확대 축소 처리용
@@ -144,6 +146,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.engine = CalendarEngine()
         self.selected_date = QDate.currentDate()
         self.old_pos = None
+        self.holiday_cache = {}
 
         self.init_ui()
         self.refresh_events()
@@ -233,6 +236,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         panel.setLayout(layout)
         self.update_month_label()
+        self.apply_holiday_styles()
         return panel
 
     def _build_events_panel(self): #3번째 구역, 이벤트 리스트 있는 구역 붙이는 함수
@@ -447,6 +451,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def on_page_changed(self, year, month):
         self.update_month_label(year, month)
+        self.apply_holiday_styles(year)
 
     def update_month_label(self, year=None, month=None):
         if year is None or month is None:
@@ -454,6 +459,30 @@ class CalendarWidget(QWidget): #메인 UI 구현
             month = self.calendar.monthShown()
 
         self.month_label.setText(f"{year}년 {month}월")
+
+    def holidays_for_year(self, year):
+        if year not in self.holiday_cache:
+            self.holiday_cache[year] = get_korean_holidays(year)
+
+        return self.holiday_cache[year]
+
+    def holidays_for_date(self, date_str):
+        year = int(date_str[:4])
+        return self.holidays_for_year(year).get(date_str, [])
+
+    def apply_holiday_styles(self, year=None):
+        if year is None:
+            year = self.calendar.yearShown()
+
+        holiday_format = QTextCharFormat()
+        holiday_format.setForeground(QBrush(QColor("#FF8A8A")))
+        holiday_format.setBackground(QBrush(QColor("#261A21")))
+        holiday_format.setFontWeight(700)
+
+        for target_year in [year - 1, year, year + 1]:
+            for date_str in self.holidays_for_year(target_year):
+                qdate = QDate.fromString(date_str, "yyyy-MM-dd")
+                self.calendar.setDateTextFormat(qdate, holiday_format)
 
     def on_date_clicked(self, date):
         self.selected_date = date
@@ -480,6 +509,11 @@ class CalendarWidget(QWidget): #메인 UI 구현
             self.selected_date = QDate.fromString(result["date"], "yyyy-MM-dd")
             self.calendar.setSelectedDate(self.selected_date)
             self.show_result(f"추가됨\n{result['time']} | {result['title']}")
+
+        elif action == "add_period":
+            self.selected_date = QDate.fromString(result["start_date"], "yyyy-MM-dd")
+            self.calendar.setSelectedDate(self.selected_date)
+            self.show_result(f"기간 추가됨\n{result['title']}")
 
         elif action == "list":
             self.selected_date = QDate.fromString(command["date"], "yyyy-MM-dd")
@@ -517,18 +551,32 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def refresh_events(self):
         date_str = self.selected_date.toString("yyyy-MM-dd")
         events = self.engine.list_events(date_str)
+        holidays = self.holidays_for_date(date_str)
 
         self.events_title.setText(self.event_title_text())
         self.event_list.clear()
 
-        if not events:
+        for holiday_name in holidays:
+            item = QListWidgetItem(f"휴일 | {holiday_name}")
+            item.setForeground(QBrush(QColor("#FF9B9B")))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.event_list.addItem(item)
+
+        if not events and not holidays:
             item = QListWidgetItem("일정 없음")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.event_list.addItem(item)
             return
 
         for event in events:
-            text = f"{event['time']} | {event['title']}"
+            if event.get("type") == "period":
+                if event.get("end_date"):
+                    text = f"기간 | {event['title']} ({event['start_date']}~{event['end_date']})"
+                else:
+                    text = f"기간 | {event['title']} (무기한)"
+            else:
+                text = f"{event['time']} | {event['title']}"
+
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, event["id"])
             self.event_list.addItem(item)
