@@ -2,7 +2,7 @@
 
 import sys
 
-from PyQt6.QtCore import QDate, Qt, QTime
+from PyQt6.QtCore import QDate, QThread, Qt, QTime, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
@@ -27,7 +27,20 @@ from PyQt6.QtWidgets import (
 from ai_parser_gpt import parse
 from calendar_engine import CalendarEngine
 from executor import execute
+from holiday_updater import update_holiday_cache
 from korean_calendar_utils import get_korean_holidays
+
+
+class HolidayUpdateThread(QThread):
+    updated = pyqtSignal(object)
+
+    def __init__(self, years, parent=None):
+        super().__init__(parent)
+        self.years = years
+
+    def run(self):
+        result = update_holiday_cache(self.years)
+        self.updated.emit(result)
 
 
 class ExpandingCommandInput(QTextEdit): #확대 축소 처리용
@@ -147,9 +160,11 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.selected_date = QDate.currentDate()
         self.old_pos = None
         self.holiday_cache = {}
+        self.holiday_update_thread = None
 
         self.init_ui()
         self.refresh_events()
+        self.start_holiday_update()
 
     def init_ui(self): #초기 설정
         self.setWindowTitle("Mini Calendar Widget")
@@ -452,6 +467,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def on_page_changed(self, year, month):
         self.update_month_label(year, month)
         self.apply_holiday_styles(year)
+        self.start_holiday_update([year - 1, year, year + 1])
 
     def update_month_label(self, year=None, month=None):
         if year is None or month is None:
@@ -469,6 +485,43 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def holidays_for_date(self, date_str):
         year = int(date_str[:4])
         return self.holidays_for_year(year).get(date_str, [])
+
+    def years_for_holiday_update(self):
+        current_year = QDate.currentDate().year()
+        shown_year = self.calendar.yearShown()
+        selected_year = self.selected_date.year()
+        return sorted(
+            {
+                current_year - 1,
+                current_year,
+                current_year + 1,
+                shown_year - 1,
+                shown_year,
+                shown_year + 1,
+                selected_year,
+            }
+        )
+
+    def start_holiday_update(self, years=None):
+        if self.holiday_update_thread and self.holiday_update_thread.isRunning():
+            return
+
+        update_years = years or self.years_for_holiday_update()
+        self.holiday_update_thread = HolidayUpdateThread(update_years, self)
+        self.holiday_update_thread.updated.connect(self.on_holiday_update_finished)
+        self.holiday_update_thread.finished.connect(self.clear_holiday_update_thread)
+        self.holiday_update_thread.start()
+
+    def on_holiday_update_finished(self, result):
+        if not getattr(result, "updated", False):
+            return
+
+        self.holiday_cache.clear()
+        self.apply_holiday_styles()
+        self.refresh_events()
+
+    def clear_holiday_update_thread(self):
+        self.holiday_update_thread = None
 
     def apply_holiday_styles(self, year=None):
         if year is None:

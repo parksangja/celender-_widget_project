@@ -14,13 +14,18 @@ copy "calendar_engine.py" "%OUT%\" >nul
 copy "ai_parser_gpt.py" "%OUT%\" >nul
 copy "korean_datetime_parser.py" "%OUT%\" >nul
 copy "korean_calendar_utils.py" "%OUT%\" >nul
+copy "holiday_updater.py" "%OUT%\" >nul
 copy "executor.py" "%OUT%\" >nul
 copy "test_parser.py" "%OUT%\" >nul
 copy "test_executor.py" "%OUT%\" >nul
 copy "test_calendar_features.py" "%OUT%\" >nul
+copy "test_holiday_updater.py" "%OUT%\" >nul
 copy "requirements.txt" "%OUT%\" >nul
+copy "special_holidays.json" "%OUT%\" >nul
+copy "holiday_api_key.txt.example" "%OUT%\" >nul
 copy "setup_env.bat" "%OUT%\" >nul
 copy "run_calendar.bat" "%OUT%\" >nul
+copy "make_submission.bat" "%OUT%\" >nul
 copy "README.md" "%OUT%\" >nul
 copy "SUBMISSION.md" "%OUT%\" >nul
 copy "프로젝트 개요.md" "%OUT%\" >nul

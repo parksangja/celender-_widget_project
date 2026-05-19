@@ -9,5 +9,7 @@ env/
 .env
 
 events.json
+holiday_api_key.txt
+holiday_cache.json
 
 calendar_widget_submission/

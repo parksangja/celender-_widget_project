@@ -36,6 +36,7 @@ class CalendarFeatureTest(unittest.TestCase):
         self.assertIn("설날", holidays["2026-02-17"])
         self.assertIn("부처님오신날", holidays["2026-05-24"])
         self.assertIn("부처님오신날 대체공휴일", holidays["2026-05-25"])
+        self.assertIn("제9회 전국동시지방선거일", holidays["2026-06-03"])
         self.assertIn("제헌절", holidays["2026-07-17"])
 
     def test_parse_indefinite_period(self):

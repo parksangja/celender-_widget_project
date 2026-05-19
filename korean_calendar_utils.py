@@ -1,6 +1,12 @@
+import json
+import os
 from datetime import date, datetime, timedelta
 
 from korean_lunar_calendar import KoreanLunarCalendar
+
+from holiday_updater import load_cached_public_holidays
+
+SPECIAL_HOLIDAYS_PATH = os.path.join(os.path.dirname(__file__), "special_holidays.json")
 
 
 def lunar_to_solar(year, month, day, leap_month=False):
@@ -49,6 +55,24 @@ def _add_substitute_holidays(holidays, base_holidays):
         _add_holiday(holidays, substitute_date, f"{name} 대체공휴일")
 
 
+def load_special_holidays(year, path=SPECIAL_HOLIDAYS_PATH):
+    if not os.path.exists(path):
+        return []
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    result = []
+    for item in data:
+        holiday_date = datetime.strptime(item["date"], "%Y-%m-%d").date()
+        if holiday_date.year != year:
+            continue
+
+        result.append((holiday_date, item["name"]))
+
+    return result
+
+
 def get_korean_holidays(year):
     base_holidays = []
 
@@ -88,6 +112,17 @@ def get_korean_holidays(year):
         _add_holiday(holidays, holiday_date, name)
 
     _add_substitute_holidays(holidays, base_holidays)
+
+    for date_str, names in load_cached_public_holidays(year).items():
+        holiday_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        if holiday_date.year != year:
+            continue
+
+        for name in names:
+            _add_holiday(holidays, holiday_date, name)
+
+    for holiday_date, name in load_special_holidays(year):
+        _add_holiday(holidays, holiday_date, name)
 
     return {
         holiday_date.strftime("%Y-%m-%d"): names
