@@ -12,7 +12,6 @@ main.py
 calendar_engine.py
 ai_parser_gpt.py
 korean_datetime_parser.py
-korean_calendar_utils.py
 holiday_updater.py
 executor.py
 test_parser.py
@@ -20,8 +19,7 @@ test_executor.py
 test_calendar_features.py
 test_holiday_updater.py
 requirements.txt
-special_holidays.json
-holiday_api_key.txt.example
+.env.example
 setup_env.bat
 run_calendar.bat
 make_submission.bat
@@ -37,7 +35,7 @@ SUBMISSION.md
 .venv/
 __pycache__/
 events.json
-holiday_api_key.txt
+.env
 holiday_cache.json
 *.pyc
 ```
@@ -47,17 +45,15 @@ holiday_cache.json
 - `main.py`: PyQt6 기반 UI 실행 파일입니다. 3분할 화면, AI 입력창, 캘린더, 일정 목록, 직접 추가 창을 담당합니다.
 - `calendar_engine.py`: 일정 추가, 조회, 삭제, 수정, 저장, 충돌 검사를 담당합니다.
 - `ai_parser_gpt.py`: 사용자의 한국어 자연어 입력을 `add`, `list`, `delete` 명령으로 변환합니다.
-- `korean_datetime_parser.py`: `오늘`, `내일`, `5월 3일`, `오후 세 시`, `1시간 반` 같은 날짜/시간 표현을 해석합니다.
-- `korean_calendar_utils.py`: 음력 날짜를 양력 날짜로 변환하고 대한민국 공휴일을 계산합니다.
-- `holiday_updater.py`: 공공데이터포털 공식 휴일 API를 2일 주기로 확인하고 `holiday_cache.json`에 저장합니다.
+- `korean_datetime_parser.py`: `오늘`, `내일`, `5월 3일`, `오후 세 시`, `음력 1월 1일` 같은 날짜/시간 표현을 해석합니다.
+- `holiday_updater.py`: 공공데이터포털 공식 휴일 API를 2일 주기로 확인하고 `holiday_cache.json`에 저장/조회합니다.
 - `executor.py`: 파서가 만든 명령을 실제 캘린더 엔진에 실행합니다.
 - `test_parser.py`: 자연어 파서가 의도대로 동작하는지 확인합니다.
 - `test_executor.py`: 파서 명령과 캘린더 엔진 연결이 의도대로 동작하는지 확인합니다.
 - `test_calendar_features.py`: 음력 변환, 공휴일 계산, 무기한 기간 일정 기능을 확인합니다.
-- `test_holiday_updater.py`: 공식 휴일 응답 파싱, 2일 캐시, 캐시 병합 기능을 확인합니다.
+- `test_holiday_updater.py`: 공식 휴일 응답 파싱, 2일 캐시, API 캐시 조회 기능을 확인합니다.
 - `requirements.txt`: 실행에 필요한 Python 패키지를 기록합니다.
-- `special_holidays.json`: 선거일, 임시공휴일처럼 매번 지정되는 휴일을 기록합니다.
-- `holiday_api_key.txt.example`: 공공데이터포털 API 키를 어디에 넣는지 보여주는 예시 파일입니다.
+- `.env.example`: 공공데이터포털 API 키를 `.env`에 넣는 형식을 보여주는 예시 파일입니다.
 - `setup_env.bat`: Windows에서 가상환경과 패키지 설치를 쉽게 실행하기 위한 파일입니다.
 - `run_calendar.bat`: Windows에서 앱을 쉽게 실행하기 위한 파일입니다.
 
@@ -105,8 +101,8 @@ make_submission.bat
 - 오른쪽 `+` 버튼으로 일정 직접 추가
 - 음력 날짜를 양력으로 변환
 - 대한민국 공휴일 달력 표시
-- 선거일/임시공휴일 같은 수시 지정 휴일 표시
 - 공공데이터포털 특일 정보 기반 2일 주기 휴일 자동 업데이트
+- API가 제공하는 선거일/임시공휴일 표시
 - 시작일만 있는 무기한 기간 일정
 - 일정 충돌 검사
 - JSON 파일 저장

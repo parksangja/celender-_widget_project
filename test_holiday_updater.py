@@ -4,17 +4,29 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import holiday_updater
 from holiday_updater import (
+    get_api_key,
+    get_korean_holidays,
     load_cached_public_holidays,
     parse_public_holiday_response,
     save_holiday_cache,
     update_holiday_cache,
 )
-from korean_calendar_utils import get_korean_holidays
 
 
 class HolidayUpdaterTest(unittest.TestCase):
+    def test_get_api_key_reads_dotenv_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "KOREA_HOLIDAY_API_KEY=dotenv-service-key\n",
+                encoding="utf-8",
+            )
+
+            result = get_api_key(env_path=str(env_path))
+
+            self.assertEqual(result, "dotenv-service-key")
+
     def test_parse_public_holiday_json_response(self):
         payload = {
             "response": {
@@ -94,7 +106,7 @@ class HolidayUpdaterTest(unittest.TestCase):
             self.assertEqual(result.reason, "fresh_cache")
             self.assertEqual(calls, [])
 
-    def test_cached_public_holidays_are_merged_into_calendar_holidays(self):
+    def test_cached_public_holidays_are_returned_by_calendar_holidays(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             cache_path = Path(temp_dir) / "holiday_cache.json"
             save_holiday_cache(
@@ -105,12 +117,7 @@ class HolidayUpdaterTest(unittest.TestCase):
                 str(cache_path),
             )
 
-            old_cache_path = holiday_updater.HOLIDAY_CACHE_PATH
-            holiday_updater.HOLIDAY_CACHE_PATH = str(cache_path)
-            try:
-                holidays = get_korean_holidays(2026)
-            finally:
-                holiday_updater.HOLIDAY_CACHE_PATH = old_cache_path
+            holidays = get_korean_holidays(2026, cache_path=str(cache_path))
 
             self.assertIn("임시공휴일", holidays["2026-10-05"])
 

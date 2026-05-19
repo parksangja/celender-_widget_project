@@ -10,7 +10,7 @@ from xml.etree import ElementTree
 BASE_URL = "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo"
 PROJECT_DIR = os.path.dirname(__file__)
 HOLIDAY_CACHE_PATH = os.path.join(PROJECT_DIR, "holiday_cache.json")
-API_KEY_FILE = os.path.join(PROJECT_DIR, "holiday_api_key.txt")
+ENV_FILE = os.path.join(PROJECT_DIR, ".env")
 API_KEY_ENV = "KOREA_HOLIDAY_API_KEY"
 UPDATE_INTERVAL_DAYS = 2
 REQUEST_TIMEOUT_SECONDS = 8
@@ -24,21 +24,44 @@ class HolidayUpdateResult:
     error: str = ""
 
 
-def get_api_key():
+def get_api_key(env_path=None):
     env_key = os.environ.get(API_KEY_ENV, "").strip()
     if env_key:
         return env_key
 
-    if not os.path.exists(API_KEY_FILE):
+    dotenv_key = load_env_value(API_KEY_ENV, env_path or ENV_FILE)
+    if dotenv_key:
+        return dotenv_key
+
+    return None
+
+
+def load_env_value(name, env_path=None):
+    env_path = env_path or ENV_FILE
+    if not os.path.exists(env_path):
         return None
 
-    with open(API_KEY_FILE, "r", encoding="utf-8") as f:
-        key = f.read().strip()
+    with open(env_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
 
-    if key.startswith(f"{API_KEY_ENV}="):
-        key = key.split("=", 1)[1].strip()
+    prefix = f"{name}="
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
 
-    return key or None
+        if not line.startswith(prefix):
+            continue
+
+        value = line.split("=", 1)[1].strip()
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+
+        return value.strip() or None
+
+    return None
 
 
 def load_holiday_cache(cache_path=None):
@@ -99,6 +122,15 @@ def load_cached_public_holidays(year, cache_path=None):
             result[date_str] = [str(name) for name in names if str(name).strip()]
 
     return result
+
+
+def get_korean_holidays(year, cache_path=None):
+    holidays = load_cached_public_holidays(year, cache_path)
+    return {
+        date_str: names
+        for date_str, names in sorted(holidays.items())
+        if date_str.startswith(f"{year}-")
+    }
 
 
 def fetch_public_holidays(year, service_key, timeout=REQUEST_TIMEOUT_SECONDS):

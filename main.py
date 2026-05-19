@@ -27,8 +27,7 @@ from PyQt6.QtWidgets import (
 from ai_parser_gpt import parse
 from calendar_engine import CalendarEngine
 from executor import execute
-from holiday_updater import update_holiday_cache
-from korean_calendar_utils import get_korean_holidays
+from holiday_updater import get_korean_holidays, update_holiday_cache
 
 
 class HolidayUpdateThread(QThread):

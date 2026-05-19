@@ -20,8 +20,8 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 - 일정 시간 충돌 검사
 - 음력 날짜를 양력 날짜로 변환
 - 대한민국 공휴일 달력 표시
-- 선거일/임시공휴일 같은 수시 지정 휴일 표시
-- 공공데이터포털 특일 정보 기반 2일 주기 휴일 자동 업데이트
+- 공공데이터포털 특일 정보 API 기반 2일 주기 휴일 자동 업데이트
+- API가 제공하는 선거일/임시공휴일 표시
 - 시작일만 있는 무기한 기간 일정
 - 파서/실행기 테스트
 
@@ -33,9 +33,8 @@ celender-_widget_project/
 |-- main.py                    # PyQt6 UI 실행 파일
 |-- calendar_engine.py          # 일정 저장/조회/삭제/수정 엔진
 |-- ai_parser_gpt.py            # 한국어 자연어 명령 파서
-|-- korean_datetime_parser.py   # 한국어 날짜/시간 해석
-|-- korean_calendar_utils.py    # 음력 변환과 대한민국 공휴일 계산
-|-- holiday_updater.py          # 공식 휴일 API 자동 업데이트와 캐시 관리
+|-- korean_datetime_parser.py   # 한국어 날짜/시간 해석과 음력 변환
+|-- holiday_updater.py          # 공식 휴일 API 자동 업데이트와 캐시 휴일 조회
 |-- executor.py                 # 파서 명령을 캘린더 엔진에 실행
 |
 |-- test_parser.py              # 자연어 파서 테스트
@@ -44,8 +43,7 @@ celender-_widget_project/
 |-- test_holiday_updater.py     # 휴일 자동 업데이트 테스트
 |
 |-- requirements.txt            # 필요한 Python 패키지 목록
-|-- special_holidays.json       # 선거일/임시공휴일 같은 수시 지정 휴일
-|-- holiday_api_key.txt.example # 공공데이터포털 API 키 입력 예시
+|-- .env.example                # 공공데이터포털 API 키 입력 예시
 |-- setup_env.bat               # Windows 환경 준비용 실행 파일
 |-- run_calendar.bat            # Windows 앱 실행 파일
 |-- make_submission.bat         # 제출용 폴더 생성 파일
@@ -62,7 +60,7 @@ celender-_widget_project/
 .venv/
 __pycache__/
 events.json
-holiday_api_key.txt
+.env
 holiday_cache.json
 *.pyc
 .git/
@@ -81,34 +79,33 @@ make_submission.bat
 - Python 3.12 이상
 - PyQt6 필요
 
-## 수시 지정 휴일 추가
-
-선거일이나 임시공휴일처럼 매번 지정되는 휴일은 `special_holidays.json`에 추가합니다.
-
-```json
-[
-  {
-    "date": "2026-06-03",
-    "name": "제9회 전국동시지방선거일"
-  }
-]
-```
-
-앱을 다시 실행하면 달력과 오른쪽 일정 목록에 반영됩니다.
-
 ## 휴일 자동 업데이트
 
 공식 휴일 데이터는 공공데이터포털의 한국천문연구원 특일 정보 API에서 가져옵니다.
 API 키가 있으면 앱을 켤 때 자동으로 확인하고, 마지막 업데이트 후 2일이 지나지 않았다면 `holiday_cache.json`에 저장된 캐시를 그대로 사용합니다.
+달력에 표시되는 공휴일은 이 API 캐시를 기준으로 합니다.
 
-API 키 설정 방법은 둘 중 하나를 사용하면 됩니다.
+API 키 설정 방법은 `.env` 사용을 추천합니다.
+
+먼저 `.env.example` 파일을 복사해서 `.env` 파일을 만듭니다.
+
+```powershell
+copy .env.example .env
+```
+
+그 다음 `.env` 파일을 열고 아래처럼 인증키를 넣습니다.
+
+```text
+KOREA_HOLIDAY_API_KEY=공공데이터포털에서_받은_인증키
+```
+
+PowerShell 환경변수로 직접 넣는 방식도 사용할 수 있습니다.
 
 ```powershell
 $env:KOREA_HOLIDAY_API_KEY="공공데이터포털에서 받은 인증키"
 ```
 
-또는 `holiday_api_key.txt.example` 파일을 복사해서 `holiday_api_key.txt`로 이름을 바꾼 뒤, 파일 안에 인증키를 넣으면 됩니다.
-`holiday_api_key.txt`와 `holiday_cache.json`은 개인 설정/자동 생성 파일이므로 Git과 제출물에서 제외합니다.
+`.env`와 `holiday_cache.json`은 개인 설정/자동 생성 파일이므로 Git과 제출물에서 제외합니다.
 
 PowerShell에서 `python --version`을 입력했을 때 버전이 나오지 않으면 Python이 설치되어 있지 않거나, PATH 설정이 되어 있지 않은 상태입니다.
 그 경우 Python 공식 설치 파일을 사용하고, 설치할 때 **Add python.exe to PATH** 옵션을 켜야 합니다.

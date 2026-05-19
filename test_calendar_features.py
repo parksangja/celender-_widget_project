@@ -6,7 +6,8 @@ from pathlib import Path
 from ai_parser_gpt import parse
 from calendar_engine import CalendarEngine
 from executor import execute
-from korean_calendar_utils import get_korean_holidays, lunar_to_solar
+from holiday_updater import get_korean_holidays, save_holiday_cache
+from korean_datetime_parser import lunar_to_solar
 
 
 class CalendarFeatureTest(unittest.TestCase):
@@ -31,13 +32,28 @@ class CalendarFeatureTest(unittest.TestCase):
         self.assertEqual(result["time"], "15:00")
 
     def test_korean_holidays(self):
-        holidays = get_korean_holidays(2026)
+        cache_path = Path(self.temp_dir.name) / "holiday_cache.json"
+        save_holiday_cache(
+            {
+                "updated_at": "2026-05-19T21:30:00",
+                "years": {
+                    "2026": {
+                        "2026-02-17": ["설날"],
+                        "2026-05-24": ["부처님오신날"],
+                        "2026-05-25": ["부처님오신날 대체공휴일"],
+                        "2026-06-03": ["제9회 전국동시지방선거일"],
+                    }
+                },
+            },
+            str(cache_path),
+        )
+
+        holidays = get_korean_holidays(2026, cache_path=str(cache_path))
 
         self.assertIn("설날", holidays["2026-02-17"])
         self.assertIn("부처님오신날", holidays["2026-05-24"])
         self.assertIn("부처님오신날 대체공휴일", holidays["2026-05-25"])
         self.assertIn("제9회 전국동시지방선거일", holidays["2026-06-03"])
-        self.assertIn("제헌절", holidays["2026-07-17"])
 
     def test_parse_indefinite_period(self):
         result = parse("오늘부터 무기한 시험기간 추가해줘", now=self.now)

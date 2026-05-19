@@ -3,7 +3,7 @@
 import re
 from datetime import datetime, timedelta
 
-from korean_calendar_utils import lunar_to_solar
+from korean_lunar_calendar import KoreanLunarCalendar
 
 #"몇요일"을 컴퓨터가 알기 쉽게 변환
 WEEKDAY_MAP = {
@@ -52,6 +52,16 @@ KOREAN_NUMBER_MAP = {
 #정규식에 따라 패턴을 정해주는 듯?(자세한거는 더 공부하기)
 KOREAN_NUMBER_WORD_PATTERN = "|".join(sorted(KOREAN_NUMBER_MAP, key=len, reverse=True))
 TIME_PATTERN = rf"(?<![가-힣0-9])(\d{{1,2}}|{KOREAN_NUMBER_WORD_PATTERN})\s*시(?!간)(?:\s*(?:(\d{{1,2}}|{KOREAN_NUMBER_WORD_PATTERN})\s*분|반))?"
+
+
+def lunar_to_solar(year, month, day, leap_month=False):
+    calendar = KoreanLunarCalendar()
+    is_valid = calendar.setLunarDate(year, month, day, leap_month)
+
+    if not is_valid:
+        raise ValueError("Invalid lunar date")
+
+    return datetime.strptime(calendar.SolarIsoFormat(), "%Y-%m-%d").date()
 
 
 def parse_korean_number(value):
