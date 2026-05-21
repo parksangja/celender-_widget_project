@@ -43,6 +43,7 @@ def execute(command, engine): #실행 함수
             command.get("duration", 60),
             command.get("tag"),
             command.get("priority"),
+            command.get("color"),
         )
 
     if action == "add_period":
@@ -53,6 +54,7 @@ def execute(command, engine): #실행 함수
             command.get("end_date"),
             command.get("tag"),
             command.get("priority"),
+            command.get("color"),
         )
 
     if action == "list":                                    #명령 행동이 list면 이벤트 리스트 반환

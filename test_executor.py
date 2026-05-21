@@ -102,6 +102,52 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(len(remaining), 1)
         self.assertEqual(remaining[0]["title"], "운동")
 
+    def test_update_timed_event_keeps_id_and_color(self):
+        added = self.engine.add_event(
+            "회의",
+            "2026-05-01",
+            "15:00",
+            60,
+            color="#2DBE78",
+        )
+
+        updated = self.engine.update_event(
+            added["id"],
+            title="팀 회의",
+            date="2026-05-01",
+            time="16:00",
+            duration=30,
+            color="#F59F00",
+        )
+
+        self.assertEqual(updated["id"], added["id"])
+        self.assertEqual(updated["title"], "팀 회의")
+        self.assertEqual(updated["time"], "16:00")
+        self.assertEqual(updated["duration"], 30)
+        self.assertEqual(updated["color"], "#F59F00")
+
+    def test_update_period_event(self):
+        added = self.engine.add_period_event(
+            "시험기간",
+            "2026-05-01",
+            color="#9C36B5",
+        )
+
+        updated = self.engine.update_event(
+            added["id"],
+            title="중간고사 기간",
+            start_date="2026-05-02",
+            end_date="2026-05-10",
+            color="#15AABF",
+        )
+
+        self.assertEqual(updated["id"], added["id"])
+        self.assertEqual(updated["type"], "period")
+        self.assertEqual(updated["title"], "중간고사 기간")
+        self.assertEqual(updated["start_date"], "2026-05-02")
+        self.assertEqual(updated["end_date"], "2026-05-10")
+        self.assertEqual(updated["color"], "#15AABF")
+
     def test_delete_requires_condition(self):
         with self.assertRaises(ValueError):
             execute({"action": "delete", "condition": {}}, self.engine)

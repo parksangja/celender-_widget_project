@@ -2,11 +2,12 @@
 
 import sys
 
-from PyQt6.QtCore import QDate, QThread, Qt, QTime, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QTextCharFormat
+from PyQt6.QtCore import QDate, QRectF, QThread, Qt, QTime, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QPainter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QCalendarWidget,
+    QCheckBox,
     QDateEdit,
     QDialog,
     QFrame,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QTextEdit,
     QTimeEdit,
@@ -25,9 +27,21 @@ from PyQt6.QtWidgets import (
 
 #UI에 표현하기 위해 만든거 다 가져오기
 from ai_parser_gpt import parse
-from calendar_engine import CalendarEngine
+from calendar_engine import DEFAULT_EVENT_COLOR, CalendarEngine
 from executor import execute
 from holiday_updater import get_korean_holidays, update_holiday_cache
+
+
+EVENT_COLORS = [
+    DEFAULT_EVENT_COLOR,
+    "#2DBE78",
+    "#F59F00",
+    "#E03131",
+    "#9C36B5",
+    "#15AABF",
+    "#7048E8",
+]
+HOLIDAY_COLOR = "#E03131"
 
 
 class HolidayUpdateThread(QThread):
@@ -40,6 +54,115 @@ class HolidayUpdateThread(QThread):
     def run(self):
         result = update_holiday_cache(self.years)
         self.updated.emit(result)
+
+
+class MarkerCalendar(QCalendarWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.marker_provider = None
+        self.max_markers = 3
+
+    def set_marker_provider(self, provider):
+        self.marker_provider = provider
+
+    def paintCell(self, painter, rect, date):
+        super().paintCell(painter, rect, date)
+
+        if self.marker_provider is None:
+            return
+
+        markers = self.marker_provider(date)
+        if not markers:
+            return
+
+        visible_markers = markers[: self.max_markers]
+        hidden_count = len(markers) - len(visible_markers)
+        if hidden_count > 0:
+            visible_markers[-1] = {
+                "title": f"+{hidden_count + 1}",
+                "color": "#6B7280",
+                "continues_before": False,
+                "continues_after": False,
+                "show_title": True,
+            }
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        bar_height = 11
+        gap = 2
+        bottom_margin = 5
+        total_height = (bar_height * len(visible_markers)) + (gap * (len(visible_markers) - 1))
+        y = rect.bottom() - bottom_margin - total_height + 1
+
+        for marker in visible_markers:
+            continues_before = marker.get("continues_before", False)
+            continues_after = marker.get("continues_after", False)
+            left_margin = 2 if not continues_before else 0
+            right_margin = 2 if not continues_after else 0
+            x = rect.x() + left_margin
+            width = max(8, rect.width() - left_margin - right_margin)
+            bar_rect = QRectF(x, y, width, bar_height)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(marker.get("color", DEFAULT_EVENT_COLOR)))
+            painter.drawRoundedRect(bar_rect, 3, 3)
+
+            if marker.get("show_title", True):
+                painter.setPen(QColor("#FFFFFF"))
+                painter.drawText(
+                    bar_rect.adjusted(4, 0, -3, 0),
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                    marker.get("title", ""),
+                )
+
+            y += bar_height + gap
+
+        painter.restore()
+
+
+class ColorPicker(QWidget):
+    def __init__(self, selected_color=DEFAULT_EVENT_COLOR, parent=None):
+        super().__init__(parent)
+        self._selected_color = selected_color or DEFAULT_EVENT_COLOR
+        self.buttons = []
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        for color in EVENT_COLORS:
+            button = QPushButton()
+            button.setFixedSize(24, 24)
+            button.setToolTip(color)
+            button.clicked.connect(lambda _checked=False, value=color: self.set_color(value))
+            self.buttons.append((button, color))
+            layout.addWidget(button)
+
+        layout.addStretch(1)
+        self.setLayout(layout)
+        self.refresh_buttons()
+
+    def color(self):
+        return self._selected_color
+
+    def set_color(self, color):
+        self._selected_color = color or DEFAULT_EVENT_COLOR
+        self.refresh_buttons()
+
+    def refresh_buttons(self):
+        for button, color in self.buttons:
+            border = "#FFFFFF" if color == self._selected_color else "#343B47"
+            button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: {color};
+                    border: 2px solid {border};
+                    border-radius: 12px;
+                    padding: 0;
+                }}
+                """
+            )
 
 
 class ExpandingCommandInput(QTextEdit): #확대 축소 처리용
@@ -74,10 +197,22 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("제목")
 
+        self.period_checkbox = QCheckBox("기간 일정")
+        self.period_checkbox.toggled.connect(self.update_mode_widgets)
+
         self.date_input = QDateEdit()
         self.date_input.setCalendarPopup(True)
         self.date_input.setDisplayFormat("yyyy-MM-dd")
         self.date_input.setDate(selected_date)
+
+        self.end_date_input = QDateEdit()
+        self.end_date_input.setCalendarPopup(True)
+        self.end_date_input.setDisplayFormat("yyyy-MM-dd")
+        self.end_date_input.setDate(selected_date)
+
+        self.no_end_checkbox = QCheckBox("종료일 없음")
+        self.no_end_checkbox.setChecked(True)
+        self.no_end_checkbox.toggled.connect(self.update_mode_widgets)
 
         self.start_time_input = QTimeEdit()
         self.start_time_input.setDisplayFormat("HH:mm")
@@ -86,6 +221,8 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
         self.end_time_input = QTimeEdit()
         self.end_time_input.setDisplayFormat("HH:mm")
         self.end_time_input.setTime(QTime(10, 0))
+
+        self.color_picker = ColorPicker()
 
         self.error_label = QLabel()
         self.error_label.setObjectName("dialogError")
@@ -102,12 +239,186 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
         form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         form_layout.setHorizontalSpacing(14)
         form_layout.setVerticalSpacing(12)
+
+        self.date_label = QLabel("날짜")
+        self.start_time_label = QLabel("시작")
+        self.end_time_label = QLabel("종료")
+        self.no_end_label = QLabel("")
+        self.end_date_label = QLabel("종료일")
+
         form_layout.addRow("제목", self.title_input)
-        form_layout.addRow("날짜", self.date_input)
-        form_layout.addRow("시작", self.start_time_input)
-        form_layout.addRow("종료", self.end_time_input)
+        form_layout.addRow("", self.period_checkbox)
+        form_layout.addRow(self.date_label, self.date_input)
+        form_layout.addRow(self.start_time_label, self.start_time_input)
+        form_layout.addRow(self.end_time_label, self.end_time_input)
+        form_layout.addRow(self.no_end_label, self.no_end_checkbox)
+        form_layout.addRow(self.end_date_label, self.end_date_input)
+        form_layout.addRow("색상", self.color_picker)
 
         button_layout = QHBoxLayout()
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.save_button)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+        layout.addLayout(form_layout)
+        layout.addWidget(self.error_label)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+        self.update_mode_widgets()
+
+    def update_mode_widgets(self):
+        is_period = self.period_checkbox.isChecked()
+        self.date_label.setText("시작일" if is_period else "날짜")
+
+        for widget in [
+            self.start_time_label,
+            self.start_time_input,
+            self.end_time_label,
+            self.end_time_input,
+        ]:
+            widget.setVisible(not is_period)
+
+        for widget in [
+            self.no_end_label,
+            self.no_end_checkbox,
+            self.end_date_label,
+            self.end_date_input,
+        ]:
+            widget.setVisible(is_period)
+
+        self.end_date_input.setEnabled(is_period and not self.no_end_checkbox.isChecked())
+
+    def event_data(self):
+        title = self.title_input.text().strip()
+        if not title:
+            raise ValueError("제목을 입력해주세요")
+
+        if self.period_checkbox.isChecked():
+            start_date = self.date_input.date().toString("yyyy-MM-dd")
+            end_date = None if self.no_end_checkbox.isChecked() else self.end_date_input.date().toString("yyyy-MM-dd")
+
+            if end_date is not None and end_date < start_date:
+                raise ValueError("종료일은 시작일보다 빠를 수 없습니다")
+
+            return {
+                "type": "period",
+                "title": title,
+                "start_date": start_date,
+                "end_date": end_date,
+                "color": self.color_picker.color(),
+            }
+
+        start_time = self.start_time_input.time()
+        end_time = self.end_time_input.time()
+        start_minutes = (start_time.hour() * 60) + start_time.minute()
+        end_minutes = (end_time.hour() * 60) + end_time.minute()
+        duration = end_minutes - start_minutes
+
+        if duration <= 0:
+            raise ValueError("종료 시간은 시작 시간보다 늦어야 합니다")
+
+        return {
+            "type": "timed",
+            "title": title,
+            "date": self.date_input.date().toString("yyyy-MM-dd"),
+            "time": start_time.toString("HH:mm"),
+            "duration": duration,
+            "color": self.color_picker.color(),
+        }
+
+    def accept(self):
+        try:
+            self.event_data()
+        except ValueError as err:
+            self.error_label.setText(str(err))
+            return
+
+        super().accept()
+
+
+class EventEditDialog(QDialog):
+    def __init__(self, event, parent=None):
+        super().__init__(parent)
+
+        self.event = event
+        self.requested_delete = False
+        self.event_type = event.get("type", "timed")
+
+        self.setWindowTitle("일정 수정")
+        self.setModal(True)
+        self.setMinimumWidth(380)
+
+        self.title_input = QLineEdit(event.get("title", ""))
+        self.color_picker = ColorPicker(event.get("color", DEFAULT_EVENT_COLOR))
+        self.error_label = QLabel()
+        self.error_label.setObjectName("dialogError")
+
+        form_layout = QFormLayout()
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form_layout.setHorizontalSpacing(14)
+        form_layout.setVerticalSpacing(12)
+        form_layout.addRow("제목", self.title_input)
+
+        if self.event_type == "period":
+            self.start_date_input = QDateEdit()
+            self.start_date_input.setCalendarPopup(True)
+            self.start_date_input.setDisplayFormat("yyyy-MM-dd")
+            self.start_date_input.setDate(QDate.fromString(event["start_date"], "yyyy-MM-dd"))
+
+            self.no_end_checkbox = QCheckBox("종료일 없음")
+            self.no_end_checkbox.setChecked(event.get("end_date") is None)
+
+            self.end_date_input = QDateEdit()
+            self.end_date_input.setCalendarPopup(True)
+            self.end_date_input.setDisplayFormat("yyyy-MM-dd")
+            end_date = event.get("end_date") or event["start_date"]
+            self.end_date_input.setDate(QDate.fromString(end_date, "yyyy-MM-dd"))
+            self.end_date_input.setEnabled(not self.no_end_checkbox.isChecked())
+            self.no_end_checkbox.toggled.connect(self.end_date_input.setDisabled)
+
+            form_layout.addRow("시작일", self.start_date_input)
+            form_layout.addRow("", self.no_end_checkbox)
+            form_layout.addRow("종료일", self.end_date_input)
+        else:
+            self.date_input = QDateEdit()
+            self.date_input.setCalendarPopup(True)
+            self.date_input.setDisplayFormat("yyyy-MM-dd")
+            self.date_input.setDate(QDate.fromString(event["date"], "yyyy-MM-dd"))
+
+            self.start_time_input = QTimeEdit()
+            self.start_time_input.setDisplayFormat("HH:mm")
+            self.start_time_input.setTime(QTime.fromString(event["time"], "HH:mm"))
+
+            start_minutes = (self.start_time_input.time().hour() * 60) + self.start_time_input.time().minute()
+            end_minutes = start_minutes + int(event.get("duration", 60))
+            self.end_time_input = QTimeEdit()
+            self.end_time_input.setDisplayFormat("HH:mm")
+            self.end_time_input.setTime(QTime((end_minutes // 60) % 24, end_minutes % 60))
+
+            form_layout.addRow("날짜", self.date_input)
+            form_layout.addRow("시작", self.start_time_input)
+            form_layout.addRow("종료", self.end_time_input)
+
+        form_layout.addRow("색상", self.color_picker)
+
+        self.delete_button = QPushButton("삭제")
+        self.delete_button.setObjectName("dangerButton")
+        self.delete_button.clicked.connect(self.request_delete)
+
+        self.cancel_button = QPushButton("취소")
+        self.cancel_button.setObjectName("secondaryButton")
+        self.cancel_button.clicked.connect(self.reject)
+
+        self.save_button = QPushButton("저장")
+        self.save_button.clicked.connect(self.accept)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.delete_button)
+        button_layout.addStretch(1)
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.save_button)
 
@@ -125,6 +436,20 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
         if not title:
             raise ValueError("제목을 입력해주세요")
 
+        if self.event_type == "period":
+            start_date = self.start_date_input.date().toString("yyyy-MM-dd")
+            end_date = None if self.no_end_checkbox.isChecked() else self.end_date_input.date().toString("yyyy-MM-dd")
+
+            if end_date is not None and end_date < start_date:
+                raise ValueError("종료일은 시작일보다 빠를 수 없습니다")
+
+            return {
+                "title": title,
+                "start_date": start_date,
+                "end_date": end_date,
+                "color": self.color_picker.color(),
+            }
+
         start_time = self.start_time_input.time()
         end_time = self.end_time_input.time()
         start_minutes = (start_time.hour() * 60) + start_time.minute()
@@ -139,7 +464,22 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
             "date": self.date_input.date().toString("yyyy-MM-dd"),
             "time": start_time.toString("HH:mm"),
             "duration": duration,
+            "color": self.color_picker.color(),
         }
+
+    def request_delete(self):
+        answer = QMessageBox.question(
+            self,
+            "일정 삭제",
+            "이 일정을 삭제할까요?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self.requested_delete = True
+        super().accept()
 
     def accept(self):
         try:
@@ -239,7 +579,8 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.month_label = QLabel()
         self.month_label.setObjectName("monthTitle")
 
-        self.calendar = QCalendarWidget()
+        self.calendar = MarkerCalendar()
+        self.calendar.set_marker_provider(self.calendar_markers_for_date)
         self.calendar.setGridVisible(False)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
         self.calendar.clicked.connect(self.on_date_clicked)
@@ -267,6 +608,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         self.event_list = QListWidget()
         self.event_list.setObjectName("eventList")
+        self.event_list.itemClicked.connect(self.open_event_editor)
 
         add_button_row = QHBoxLayout()
         add_button_row.addStretch(1)
@@ -353,6 +695,15 @@ class CalendarWidget(QWidget): #메인 UI 구현
                 background-color: #343B47;
             }
 
+            QPushButton#dangerButton {
+                background-color: #B42318;
+                color: #FFFFFF;
+            }
+
+            QPushButton#dangerButton:hover {
+                background-color: #D92D20;
+            }
+
             QPushButton#addEventButton {
                 background-color: #2F6FED;
                 border-radius: 18px;
@@ -392,6 +743,11 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
             QLabel#dialogError {
                 color: #FF8A8A;
+            }
+
+            QCheckBox {
+                color: #DDE3EE;
+                spacing: 8px;
             }
 
             QListWidget#eventList::item {
@@ -485,6 +841,44 @@ class CalendarWidget(QWidget): #메인 UI 구현
         year = int(date_str[:4])
         return self.holidays_for_year(year).get(date_str, [])
 
+    def calendar_markers_for_date(self, date):
+        date_str = date.toString("yyyy-MM-dd")
+        markers = []
+
+        for holiday_name in self.holidays_for_date(date_str):
+            markers.append({
+                "title": holiday_name,
+                "color": HOLIDAY_COLOR,
+                "continues_before": False,
+                "continues_after": False,
+                "show_title": True,
+            })
+
+        for event in self.engine.list_events(date_str):
+            color = event.get("color") or DEFAULT_EVENT_COLOR
+
+            if event.get("type") == "period":
+                start_date = event["start_date"]
+                end_date = event.get("end_date")
+                markers.append({
+                    "title": event["title"],
+                    "color": color,
+                    "continues_before": date_str > start_date,
+                    "continues_after": end_date is None or date_str < end_date,
+                    "show_title": date_str == start_date,
+                })
+                continue
+
+            markers.append({
+                "title": event["title"],
+                "color": color,
+                "continues_before": False,
+                "continues_after": False,
+                "show_title": True,
+            })
+
+        return markers
+
     def years_for_holiday_update(self):
         current_year = QDate.currentDate().year()
         shown_year = self.calendar.yearShown()
@@ -527,14 +921,15 @@ class CalendarWidget(QWidget): #메인 UI 구현
             year = self.calendar.yearShown()
 
         holiday_format = QTextCharFormat()
-        holiday_format.setForeground(QBrush(QColor("#FF8A8A")))
-        holiday_format.setBackground(QBrush(QColor("#261A21")))
+        holiday_format.setForeground(QBrush(QColor(HOLIDAY_COLOR)))
         holiday_format.setFontWeight(700)
 
         for target_year in [year - 1, year, year + 1]:
             for date_str in self.holidays_for_year(target_year):
                 qdate = QDate.fromString(date_str, "yyyy-MM-dd")
                 self.calendar.setDateTextFormat(qdate, holiday_format)
+
+        self.calendar.updateCells()
 
     def on_date_clicked(self, date):
         self.selected_date = date
@@ -585,19 +980,71 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         try:
             data = dialog.event_data()
-            result = self.engine.add_event(
-                data["title"],
-                data["date"],
-                data["time"],
-                data["duration"],
-            )
+            if data["type"] == "period":
+                result = self.engine.add_period_event(
+                    data["title"],
+                    data["start_date"],
+                    data["end_date"],
+                    color=data["color"],
+                )
+            else:
+                result = self.engine.add_event(
+                    data["title"],
+                    data["date"],
+                    data["time"],
+                    data["duration"],
+                    color=data["color"],
+                )
         except Exception as err:
             self.show_result(f"실패: {err}")
+            return
+
+        if result.get("type") == "period":
+            self.selected_date = QDate.fromString(result["start_date"], "yyyy-MM-dd")
+            self.calendar.setSelectedDate(self.selected_date)
+            self.show_result(f"기간 직접 추가됨\n{result['title']}")
+            self.refresh_events()
             return
 
         self.selected_date = QDate.fromString(result["date"], "yyyy-MM-dd")
         self.calendar.setSelectedDate(self.selected_date)
         self.show_result(f"직접 추가됨\n{result['time']} | {result['title']}")
+        self.refresh_events()
+
+    def open_event_editor(self, item):
+        event_id = item.data(Qt.ItemDataRole.UserRole)
+        if event_id is None:
+            return
+
+        try:
+            event = self.engine.get_event(event_id)
+        except Exception as err:
+            self.show_result(f"실패: {err}")
+            return
+
+        dialog = EventEditDialog(event, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            if dialog.requested_delete:
+                self.engine.delete_event(event_id)
+                self.show_result(f"삭제됨\n{event['title']}")
+            else:
+                data = dialog.event_data()
+                result = self.engine.update_event(event_id, **data)
+                if result.get("type") == "period":
+                    self.selected_date = QDate.fromString(result["start_date"], "yyyy-MM-dd")
+                    self.show_result(f"수정됨\n{result['title']}")
+                else:
+                    self.selected_date = QDate.fromString(result["date"], "yyyy-MM-dd")
+                    self.show_result(f"수정됨\n{result['time']} | {result['title']}")
+
+                self.calendar.setSelectedDate(self.selected_date)
+        except Exception as err:
+            self.show_result(f"실패: {err}")
+            return
+
         self.refresh_events()
 
     def refresh_events(self):
@@ -610,7 +1057,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         for holiday_name in holidays:
             item = QListWidgetItem(f"휴일 | {holiday_name}")
-            item.setForeground(QBrush(QColor("#FF9B9B")))
+            item.setForeground(QBrush(QColor(HOLIDAY_COLOR)))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.event_list.addItem(item)
 
@@ -618,6 +1065,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
             item = QListWidgetItem("일정 없음")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.event_list.addItem(item)
+            self.calendar.updateCells()
             return
 
         for event in events:
@@ -630,8 +1078,12 @@ class CalendarWidget(QWidget): #메인 UI 구현
                 text = f"{event['time']} | {event['title']}"
 
             item = QListWidgetItem(text)
+            item.setForeground(QBrush(QColor(event.get("color") or DEFAULT_EVENT_COLOR)))
             item.setData(Qt.ItemDataRole.UserRole, event["id"])
+            item.setToolTip("클릭하여 수정/삭제")
             self.event_list.addItem(item)
+
+        self.calendar.updateCells()
 
     def event_title_text(self):
         today = QDate.currentDate()

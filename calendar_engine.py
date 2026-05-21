@@ -2,6 +2,8 @@ from datetime import datetime, time, timedelta
 import json
 import os
 
+DEFAULT_EVENT_COLOR = "#2F6FED"
+
 
 class CalendarEngine:                               #self를 사용하는 이유: 클래스 정의 시 첫번째 매개변수로 반드시 사용되어야 함. 물론 딴거 써도 됨.
     def __init__(self, storage_path="events.json"): #class 실행시 자동으로 불러오는 메소드
@@ -38,6 +40,16 @@ class CalendarEngine:                               #self를 사용하는 이유
 
         return start_date <= target_date <= end_date
 
+    def _check_timed_conflict(self, start, end, ignore_id=None):
+        for e in self.events:
+            if e.get("type") == "period":
+                continue
+            if ignore_id is not None and e["id"] == ignore_id:
+                continue
+
+            if not (end <= e["start"] or start >= e["end"]):
+                raise ValueError(f"Event conflict with id={e['id']}")
+
     def _to_dict(self, event):     #이벤트에 대한 상세정보를 불러오는 함수이며 JSON형식으로 저장된 이벤트의 id, 제목, 날짜 및 시간, 기간, 태그, 우선순위를 불러온다.
         if event.get("type") == "period":
             end_date = event.get("end_date")
@@ -52,6 +64,7 @@ class CalendarEngine:                               #self를 사용하는 이유
                 "duration": None,
                 "tag": event.get("tag"),
                 "priority": event.get("priority"),
+                "color": event.get("color", DEFAULT_EVENT_COLOR),
             }
 
         return {                   #이벤트는 딕셔너리 형태로 반환함.
@@ -62,7 +75,8 @@ class CalendarEngine:                               #self를 사용하는 이유
             "time": event["start"].strftime("%H:%M"),
             "duration": event["duration"],
             "tag": event.get("tag"),
-            "priority": event.get("priority")
+            "priority": event.get("priority"),
+            "color": event.get("color", DEFAULT_EVENT_COLOR),
         }
 
     def _save(self):                                              #self값을 받아와 그 값에 해당하는 이벤트를 저장하는 함수
@@ -85,6 +99,7 @@ class CalendarEngine:                               #self를 사용하는 이유
                         "end_date": self._parse_date(d["end_date"]) if d.get("end_date") else None,
                         "tag": d.get("tag"),
                         "priority": d.get("priority"),
+                        "color": d.get("color", DEFAULT_EVENT_COLOR),
                     })
                     continue
 
@@ -97,23 +112,19 @@ class CalendarEngine:                               #self를 사용하는 이유
                     "end": start + timedelta(minutes=d["duration"]), #끝은 시작에 timedelta 함수를 써서, 지속시간을 더한다.
                     "duration": d["duration"],
                     "tag": d.get("tag"),
-                    "priority": d.get("priority")
+                    "priority": d.get("priority"),
+                    "color": d.get("color", DEFAULT_EVENT_COLOR),
                 })
 
     # ------------------------
     # 핵심 기능
     # ------------------------
 
-    def add_event(self, title, date, time, duration=60, tag=None, priority=None): #이벤트 저장 함수
+    def add_event(self, title, date, time, duration=60, tag=None, priority=None, color=None): #이벤트 저장 함수
         start = self._parse_datetime(date, time)                                  #시작 시간은 받아온 날짜와 시간을 _parse_datetime에 맞추어 정함
         end = start + timedelta(minutes=duration)                                 #끝나는 시간은 duration을 시작시간에 timedelta를 이용해 더해서 정함
 
-        for e in self.events:                                          #시간 충돌 검사를 위해 추가된 이벤트를 기존 이벤트들과 비교
-            if e.get("type") == "period":
-                continue
-
-            if not (end <= e["start"] or start >= e["end"]):
-                raise ValueError(f"Event conflict with id={e['id']}")  #만약 시간이 겹치면 충돌 이벤트의 id를 출력하며 오류가 발생한다고 출력
+        self._check_timed_conflict(start, end)
             
         event = {                                                      #충돌검사 통과시, 저장 형식에 맞추어 저장
             "id": self._generate_id(), 
@@ -123,7 +134,8 @@ class CalendarEngine:                               #self를 사용하는 이유
             "end": end,
             "duration": duration,
             "tag": tag,
-            "priority": priority
+            "priority": priority,
+            "color": color or DEFAULT_EVENT_COLOR,
         }
 
         self.events.append(event)
@@ -132,7 +144,7 @@ class CalendarEngine:                               #self를 사용하는 이유
 
         return self._to_dict(event)
 
-    def add_period_event(self, title, start_date, end_date=None, tag=None, priority=None):
+    def add_period_event(self, title, start_date, end_date=None, tag=None, priority=None, color=None):
         start = self._parse_date(start_date)
         end = self._parse_date(end_date) if end_date else None
 
@@ -147,6 +159,7 @@ class CalendarEngine:                               #self를 사용하는 이유
             "end_date": end,
             "tag": tag,
             "priority": priority,
+            "color": color or DEFAULT_EVENT_COLOR,
         }
 
         self.events.append(event)
@@ -182,27 +195,57 @@ class CalendarEngine:                               #self를 사용하는 이유
         self._save()
         return True
 
+    def get_event(self, event_id):
+        for e in self.events:
+            if e["id"] == event_id:
+                return self._to_dict(e)
+
+        raise ValueError("Event not found")
+
     def update_event(self, event_id, **kwargs):                             #이벤트 수정 함수
         for e in self.events:
             if e["id"] == event_id:                                         #수정할 이벤트의 id와 같은 이벤트 발견 시, **kwargs로 받아와 수정할 값만 수정
+                if e.get("type") == "period":
+                    title = kwargs.get("title", e["title"])
+                    start_date = kwargs.get("start_date", kwargs.get("date", e["start_date"].strftime("%Y-%m-%d")))
+                    end_date = kwargs.get("end_date", e["end_date"].strftime("%Y-%m-%d") if e.get("end_date") else None)
+                    start = self._parse_date(start_date)
+                    end = self._parse_date(end_date) if end_date else None
+
+                    if end is not None and end < start:
+                        raise ValueError("Period end date must be after start date")
+
+                    e["title"] = title
+                    e["start_date"] = start
+                    e["end_date"] = end
+                    e["tag"] = kwargs.get("tag", e.get("tag"))
+                    e["priority"] = kwargs.get("priority", e.get("priority"))
+                    e["color"] = kwargs.get("color", e.get("color", DEFAULT_EVENT_COLOR))
+                    self.events.sort(key=self._sort_key)
+                    self._save()
+                    return self._to_dict(e)
+
                 title = kwargs.get("title", e["title"])
                 date = kwargs.get("date", e["start"].strftime("%Y-%m-%d"))
                 time = kwargs.get("time", e["start"].strftime("%H:%M"))
                 duration = kwargs.get("duration", e["duration"])
                 tag = kwargs.get("tag", e.get("tag"))
                 priority = kwargs.get("priority", e.get("priority"))
+                color = kwargs.get("color", e.get("color", DEFAULT_EVENT_COLOR))
+                start = self._parse_datetime(date, time)
+                end = start + timedelta(minutes=duration)
 
-                self.events.remove(e)                                        #수정 전 이벤트 삭제
+                self._check_timed_conflict(start, end, ignore_id=event_id)
 
-                try:
-                    updated = self.add_event(
-                        title, date, time, duration, tag, priority           #위에 수정한 값을 가지고 add_event함수에 넣어 추가
-                    )                                                        #add_event를 거치는 이유는 충돌 검사를 위해서 거침
-                except Exception as err:                                     #만약 오류 발생시,
-                    # 실패 시 복구
-                    self.events.append(e)                                    #기존 이벤트 복구 및 오류 알림
-                    raise err
-
-                return updated
+                e["title"] = title
+                e["start"] = start
+                e["end"] = end
+                e["duration"] = duration
+                e["tag"] = tag
+                e["priority"] = priority
+                e["color"] = color
+                self.events.sort(key=self._sort_key)
+                self._save()
+                return self._to_dict(e)
 
         raise ValueError("Event not found")                                  #찾는 이벤트의 id가 없다면 오류 알림
