@@ -12,6 +12,7 @@ mkdir "%OUT%"
 copy "main.py" "%OUT%\" >nul
 copy "calendar_engine.py" "%OUT%\" >nul
 copy "ai_parser_gpt.py" "%OUT%\" >nul
+copy "openai_calendar_client.py" "%OUT%\" >nul
 copy "korean_datetime_parser.py" "%OUT%\" >nul
 copy "holiday_updater.py" "%OUT%\" >nul
 copy "executor.py" "%OUT%\" >nul
@@ -19,6 +20,7 @@ copy "test_parser.py" "%OUT%\" >nul
 copy "test_executor.py" "%OUT%\" >nul
 copy "test_calendar_features.py" "%OUT%\" >nul
 copy "test_holiday_updater.py" "%OUT%\" >nul
+copy "test_openai_calendar_client.py" "%OUT%\" >nul
 copy "requirements.txt" "%OUT%\" >nul
 copy ".env.example" "%OUT%\" >nul
 copy "setup_env.bat" "%OUT%\" >nul

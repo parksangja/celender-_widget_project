@@ -14,11 +14,15 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 - 왼쪽 AI 입력 영역
 - 가운데 캘린더 영역
 - 오른쪽 오늘/선택 날짜 일정 목록
+- OpenAI API 기반 AI 입력 해석
+- OpenAI API 키가 없거나 실패할 때 로컬 한국어 자연어 파서로 자동 대체
+- AI 입력창과 달력 사이 정보 아이콘으로 OpenAI/휴일 API 연결 상태 표시
 - 한국어 자연어 일정 추가/조회/삭제 명령 파싱
 - 일반/기간 일정 직접 추가 버튼
-- 오른쪽 일정 목록 더블클릭 수정/삭제
+- 오른쪽 일정 목록 클릭 수정/삭제
 - JSON 파일 기반 일정 저장
 - 일정 시간 충돌 검사
+- 매주/매달/매년 반복 일정
 - 음력 날짜를 양력 날짜로 변환
 - 대한민국 공휴일 달력 표시
 - 공휴일/기간/일반 일정을 달력 색상 막대로 표시
@@ -34,8 +38,9 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 celender-_widget_project/
 |
 |-- main.py                    # PyQt6 UI 실행 파일
-|-- calendar_engine.py          # 일정 저장/조회/삭제/수정/색상 엔진
+|-- calendar_engine.py          # 일정 저장/조회/삭제/수정/색상/반복 엔진
 |-- ai_parser_gpt.py            # 한국어 자연어 명령 파서
+|-- openai_calendar_client.py   # OpenAI API 연결과 일정 명령 변환
 |-- korean_datetime_parser.py   # 한국어 날짜/시간 해석과 음력 변환
 |-- holiday_updater.py          # 공식 휴일 API 자동 업데이트와 캐시 휴일 조회
 |-- executor.py                 # 파서 명령을 캘린더 엔진에 실행
@@ -44,9 +49,10 @@ celender-_widget_project/
 |-- test_executor.py            # 실행기 테스트
 |-- test_calendar_features.py   # 음력/공휴일/기간 일정 테스트
 |-- test_holiday_updater.py     # 휴일 자동 업데이트 테스트
+|-- test_openai_calendar_client.py # OpenAI 연결부 단위 테스트
 |
 |-- requirements.txt            # 필요한 Python 패키지 목록
-|-- .env.example                # 공공데이터포털 API 키 입력 예시
+|-- .env.example                # 공공데이터포털/OpenAI API 키 입력 예시
 |-- setup_env.bat               # Windows 환경 준비용 실행 파일
 |-- run_calendar.bat            # Windows 앱 실행 파일
 |-- make_submission.bat         # 제출용 폴더 생성 파일
@@ -101,6 +107,22 @@ copy .env.example .env
 ```text
 KOREA_HOLIDAY_API_KEY=공공데이터포털에서_받은_인증키
 ```
+
+## OpenAI API 입력 설정
+
+AI 입력창은 `OPENAI_API_KEY`가 있으면 OpenAI API로 문장을 해석합니다.
+키가 없거나 API 호출에 실패하면 기존 로컬 파서로 자동 대체되므로 앱 자체는 계속 사용할 수 있습니다.
+
+`.env` 파일에 아래 값을 추가합니다.
+
+```text
+OPENAI_API_KEY=OpenAI에서_받은_API_키
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+`OPENAI_MODEL`은 기본값이 `gpt-5.4-mini`입니다. 필요하면 다른 모델명으로 바꿀 수 있습니다.
+
+AI 입력창과 달력 사이의 작은 `i` 아이콘에 마우스를 올리면 OpenAI API와 휴일 API 상태를 확인할 수 있습니다.
 
 PowerShell 환경변수로 직접 넣는 방식도 사용할 수 있습니다.
 
@@ -163,5 +185,5 @@ python main.py
 ## 테스트 실행
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py
+.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py test_openai_calendar_client.py
 ```

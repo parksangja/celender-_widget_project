@@ -122,6 +122,31 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(result["time"], "15:30")
         self.assertEqual(result["duration"], 60)
 
+    def test_weekly_recurrence(self):
+        result = parse("매주 금요일 오후 6시 운동 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "운동")
+        self.assertEqual(result["date"], "2026-05-01")
+        self.assertEqual(result["time"], "18:00")
+        self.assertEqual(result["recurrence"], "weekly")
+
+    def test_monthly_recurrence(self):
+        result = parse("매달 1일 오전 9시 결제일 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "결제일")
+        self.assertEqual(result["date"], "2026-05-01")
+        self.assertEqual(result["recurrence"], "monthly")
+
+    def test_yearly_recurrence(self):
+        result = parse("매년 5월 1일 오전 9시 기념일 추가해줘", now=self.now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "기념일")
+        self.assertEqual(result["date"], "2026-05-01")
+        self.assertEqual(result["recurrence"], "yearly")
+
 
 if __name__ == "__main__":
     unittest.main()

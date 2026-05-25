@@ -148,6 +148,91 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(updated["end_date"], "2026-05-10")
         self.assertEqual(updated["color"], "#15AABF")
 
+    def test_weekly_recurring_event_appears_on_next_week(self):
+        added = self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+        )
+
+        next_week = self.engine.list_events("2026-05-08")
+
+        self.assertEqual(added["recurrence"], "weekly")
+        self.assertEqual(len(next_week), 1)
+        self.assertEqual(next_week[0]["title"], "운동")
+        self.assertEqual(next_week[0]["date"], "2026-05-08")
+
+    def test_monthly_recurring_event_appears_next_month(self):
+        self.engine.add_event(
+            "결제일",
+            "2026-05-01",
+            "09:00",
+            30,
+            recurrence="monthly",
+        )
+
+        result = self.engine.list_events("2026-06-01")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["title"], "결제일")
+        self.assertEqual(result[0]["recurrence"], "monthly")
+
+    def test_yearly_recurring_event_appears_next_year(self):
+        self.engine.add_event(
+            "기념일",
+            "2026-05-01",
+            "09:00",
+            30,
+            recurrence="yearly",
+        )
+
+        result = self.engine.list_events("2027-05-01")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["title"], "기념일")
+        self.assertEqual(result[0]["recurrence"], "yearly")
+
+    def test_recurring_event_respects_end_date(self):
+        self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+            recurrence_end="2026-05-10",
+        )
+
+        self.assertEqual(len(self.engine.list_events("2026-05-08")), 1)
+        self.assertEqual(self.engine.list_events("2026-05-15"), [])
+
+    def test_update_recurring_event_keeps_recurrence_end(self):
+        added = self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+            recurrence_end="2026-05-10",
+        )
+
+        updated = self.engine.update_event(added["id"], title="저녁 운동")
+
+        self.assertEqual(updated["title"], "저녁 운동")
+        self.assertEqual(updated["recurrence"], "weekly")
+        self.assertEqual(updated["recurrence_end"], "2026-05-10")
+
+    def test_parse_recurring_event_to_execute_flow(self):
+        command = parse("매주 금요일 오후 6시 운동 추가해줘", now=self.now)
+        added = execute(command, self.engine)
+
+        result = self.engine.list_events("2026-05-08")
+
+        self.assertEqual(added["recurrence"], "weekly")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["title"], "운동")
+
     def test_delete_requires_condition(self):
         with self.assertRaises(ValueError):
             execute({"action": "delete", "condition": {}}, self.engine)

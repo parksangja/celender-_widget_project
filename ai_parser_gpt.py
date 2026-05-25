@@ -20,6 +20,13 @@ DELETE_WORDS = ["삭제해줘", "삭제", "지워줘", "지워", "없애줘", "�
 LIST_WORDS = ["보여줘", "보여", "조회해줘", "조회", "확인해줘", "확인"]
 GENERAL_WORDS = ["일정", "스케줄"]
 PERIOD_WORDS = ["무기한", "계속"]
+RECURRENCE_WORDS = {
+    "매주": "weekly",
+    "매달": "monthly",
+    "매월": "monthly",
+    "매년": "yearly",
+    "매해": "yearly",
+}
 
 PARTICLES = ["에서", "으로", "에게", "한테", "부터", "까지", "을", "를", "에", "랑", "과", "와"]
 NUMBER_PATTERN = r"\d+|[가-힣]+"
@@ -56,6 +63,7 @@ def extract_title(text: str): #제목 추출용 함수
     text = _remove_words(text, ADD_WORDS + DELETE_WORDS + LIST_WORDS)
     text = _remove_words(text, GENERAL_WORDS)
     text = _remove_words(text, PERIOD_WORDS)
+    text = _remove_words(text, RECURRENCE_WORDS.keys())
 
     words = text.split()
     cleaned_words = []
@@ -133,6 +141,13 @@ def is_period_command(text: str):
 
     return "기간" in text or any(word in text for word in PERIOD_WORDS)
 
+def extract_recurrence(text: str):
+    for word, recurrence in RECURRENCE_WORDS.items():
+        if word in text:
+            return recurrence
+
+    return "none"
+
 def parse(text: str, now=None): #메인 파서
     action = detect_action(text)
 
@@ -157,7 +172,9 @@ def parse(text: str, now=None): #메인 파서
             "time": time,
             "duration": extract_duration(text),
             "tag": None,
-            "priority": None
+            "priority": None,
+            "recurrence": extract_recurrence(text),
+            "recurrence_end": None,
         }
 
     elif action == "list":

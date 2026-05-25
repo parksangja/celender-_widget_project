@@ -44,6 +44,8 @@ def execute(command, engine): #실행 함수
             command.get("tag"),
             command.get("priority"),
             command.get("color"),
+            command.get("recurrence", "none"),
+            command.get("recurrence_end"),
         )
 
     if action == "add_period":

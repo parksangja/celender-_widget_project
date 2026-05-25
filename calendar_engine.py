@@ -1,56 +1,135 @@
-from datetime import datetime, time, timedelta
 import json
 import os
+from datetime import date as date_type          #date: 연도, 월, 일 단위의 날짜를 다루는 표준 라이브러리 클래스
+from datetime import datetime, time, timedelta
 
-DEFAULT_EVENT_COLOR = "#2F6FED"
+
+DEFAULT_EVENT_COLOR = "#2F6FED" #기본적인 일정 색상, 달력에 막대기로 표시할 때 이 색상 사용
+RECURRENCE_NONE = "none"          #반복 없는 설정
+RECURRENCE_WEEKLY = "weekly"      #매주 반복 설정
+RECURRENCE_MONTHLY = "monthly"    #매달 반복 설정
+RECURRENCE_YEARLY = "yearly"      #매년 반복 설정
+VALID_RECURRENCES = {             #유효 반복 설정 목록
+    RECURRENCE_NONE,
+    RECURRENCE_WEEKLY,
+    RECURRENCE_MONTHLY,
+    RECURRENCE_YEARLY,
+}
 
 
-class CalendarEngine:                               #self를 사용하는 이유: 클래스 정의 시 첫번째 매개변수로 반드시 사용되어야 함. 물론 딴거 써도 됨.
-    def __init__(self, storage_path="events.json"): #class 실행시 자동으로 불러오는 메소드
-        self.events = []                            #입력 받은 이벤트를 담을 리스트
-        self.storage_path = storage_path            #저장 경로를 events.json으로 정함
-        self._load()                                #실행시, _load() 함수를 실행함
+class CalendarEngine:                               #엔진 클래스 정의
+    def __init__(self, storage_path="events.json"): #클래스 불러올 때 자동 실행, 저장경로는 events.json으로 설정(파일이 없으면 새로 생성)
+        self.events = []
+        self.storage_path = storage_path
+        self._load()
 
-    # ------------------------
-    # 내부 유틸
-    # ------------------------
-    def _generate_id(self):                           #ㅅㅂ 이 함수가 왜 있는거임? 이놈이 이벤트 아이디 생성해서 self값을 정하는건가? -> 이벤트의 id를 정하는 함수인듯?
-        if not self.events:                           #리스트가 빈 리스트일때, 함수는 1을 반환한다. 즉 첫번째 이벤트의 id를 1로 정해 반환한다.
+    def _generate_id(self): #이벤트 id 생성 함수
+        if not self.events: #첫 이벤트는 id를 1로 지정
             return 1
-        return max(e["id"] for e in self.events) + 1  #리스트가 빈 리스트가 아니라면, 이벤트 리스트의 id 중 최댓값에 1을 더해 반환한다.(json파일에서 가져오는듯?) -> 최초 이벤트가 아니라면 기존 이벤트의 id에 1을 더해 id를 정한다
+        return max(event["id"] for event in self.events) + 1 #기존 이벤트의 id에 1씩 더해서 id지정
 
-    def _parse_datetime(self, date_str, time_str):                           #날짜와 시간을 가져오는 함수
-        return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M") #이 함수를 호출하면, 받은 이벤트의 날짜와 시간을 출력한다.
+    def _parse_datetime(self, date_str, time_str):  #받은 날짜와 시간을 datetime 객체로 변환해 반환
+        return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
 
-    def _parse_date(self, date_str):
+    def _parse_date(self, date_str): #받은 날짜와 시간 중 날짜만 datetime 객체로 변환해 .date()로 날짜 반환(시간까지 받는지는 모르겠음)
         return datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    def _sort_key(self, event):
-        if event.get("type") == "period":
-            return datetime.combine(event["start_date"], time.min)
+    def _parse_optional_date(self, date_str):
+        if not date_str:                   #받은 날짜가 문자열이 아니라면 None 반환
+            return None
+        if isinstance(date_str, datetime): #받은 날짜가 datetime 객체라면 .date()로 날짜 반환
+            return date_str.date()
+        if isinstance(date_str, date_type):#받은 날짜가 date 객체라면 그대로 반환(위에 as date_type로 date 클래스 불러왔음)
+            return date_str
+        return self._parse_date(date_str)  #모든 조건문에 걸리지 않으면 _parse_date() 함수로 날짜 반환
 
-        return event["start"]
+    def _normalize_recurrence(self, recurrence):                  #반복 설정 함수
+        recurrence = recurrence or RECURRENCE_NONE                #반복 설정을 받아온 반복 설정이나 반복하지 않음으로 설정(or은 왼쪽 값이 '비어있음'으로 판단하면 오른쪽 값 사용)
+        if recurrence not in VALID_RECURRENCES:
+            raise ValueError(f"Invalid recurrence: {recurrence}") #반복 설정이 유효 반복 설정 목록에 없으면 예외 처리
+        return recurrence
+
+    def _sort_key(self, event):
+        if event.get("type") == "period": #이벤트의 타입이 기간이면 시작 날짜와 최소 시간을 합쳐 datetime 객체로 반환
+            return datetime.combine(event["start_date"], time.min)
+        return event["start"]              #이벤트의 타입이 기간이 아니면 시작 datetime 객체 반환
 
     def _period_active_on(self, event, target_date):
         start_date = event["start_date"]
         end_date = event.get("end_date")
-
         if end_date is None:
             return target_date >= start_date
-
         return start_date <= target_date <= end_date
 
-    def _check_timed_conflict(self, start, end, ignore_id=None):
-        for e in self.events:
-            if e.get("type") == "period":
-                continue
-            if ignore_id is not None and e["id"] == ignore_id:
-                continue
+    def _timed_occurs_on(self, event, target_date):
+        start_date = event["start"].date()
+        recurrence = event.get("recurrence", RECURRENCE_NONE)
+        recurrence_end = event.get("recurrence_end")
 
-            if not (end <= e["start"] or start >= e["end"]):
-                raise ValueError(f"Event conflict with id={e['id']}")
+        if target_date < start_date:
+            return False
+        if recurrence_end is not None and target_date > recurrence_end:
+            return False
+        if recurrence == RECURRENCE_NONE:
+            return target_date == start_date
+        if recurrence == RECURRENCE_WEEKLY:
+            return (target_date - start_date).days % 7 == 0
+        if recurrence == RECURRENCE_MONTHLY:
+            return target_date.day == start_date.day
+        if recurrence == RECURRENCE_YEARLY:
+            return target_date.month == start_date.month and target_date.day == start_date.day
+        return False
 
-    def _to_dict(self, event):     #이벤트에 대한 상세정보를 불러오는 함수이며 JSON형식으로 저장된 이벤트의 id, 제목, 날짜 및 시간, 기간, 태그, 우선순위를 불러온다.
+    def _timed_bounds_on(self, event, target_date):
+        start = datetime.combine(target_date, event["start"].time())
+        end = start + timedelta(minutes=event["duration"])
+        return start, end
+
+    def _iter_candidate_dates(self, start_date, recurrence, recurrence_end=None, max_days=730):
+        if recurrence == RECURRENCE_NONE:
+            yield start_date
+            return
+
+        last_date = recurrence_end or (start_date + timedelta(days=max_days))
+        current = start_date
+        while current <= last_date:
+            fake_event = {
+                "start": datetime.combine(start_date, time.min),
+                "recurrence": recurrence,
+                "recurrence_end": recurrence_end,
+            }
+            if self._timed_occurs_on(fake_event, current):
+                yield current
+            current += timedelta(days=1)
+
+    def _time_overlaps(self, start_a, end_a, start_b, end_b):
+        return not (end_a <= start_b or start_a >= end_b)
+
+    def _check_timed_conflict(
+        self,
+        start,
+        duration,
+        recurrence=RECURRENCE_NONE,
+        recurrence_end=None,
+        ignore_id=None,
+    ):
+        for target_date in self._iter_candidate_dates(start.date(), recurrence, recurrence_end):
+            new_start = datetime.combine(target_date, start.time())
+            new_end = new_start + timedelta(minutes=duration)
+
+            for event in self.events:
+                if event.get("type") == "period":
+                    continue
+                if ignore_id is not None and event["id"] == ignore_id:
+                    continue
+                if not self._timed_occurs_on(event, target_date):
+                    continue
+
+                existing_start, existing_end = self._timed_bounds_on(event, target_date)
+                if self._time_overlaps(new_start, new_end, existing_start, existing_end):
+                    raise ValueError(f"Event conflict with id={event['id']}")
+
+    def _to_dict(self, event, target_date=None):
         if event.get("type") == "period":
             end_date = event.get("end_date")
             return {
@@ -65,89 +144,115 @@ class CalendarEngine:                               #self를 사용하는 이유
                 "tag": event.get("tag"),
                 "priority": event.get("priority"),
                 "color": event.get("color", DEFAULT_EVENT_COLOR),
+                "recurrence": RECURRENCE_NONE,
+                "recurrence_end": None,
             }
 
-        return {                   #이벤트는 딕셔너리 형태로 반환함.
+        display_date = target_date or event["start"].date()
+        recurrence_end = event.get("recurrence_end")
+        return {
             "id": event["id"],
             "type": "timed",
             "title": event["title"],
-            "date": event["start"].strftime("%Y-%m-%d"),
+            "date": display_date.strftime("%Y-%m-%d"),
             "time": event["start"].strftime("%H:%M"),
             "duration": event["duration"],
             "tag": event.get("tag"),
             "priority": event.get("priority"),
             "color": event.get("color", DEFAULT_EVENT_COLOR),
+            "recurrence": event.get("recurrence", RECURRENCE_NONE),
+            "recurrence_end": recurrence_end.strftime("%Y-%m-%d") if recurrence_end else None,
         }
 
-    def _save(self):                                              #self값을 받아와 그 값에 해당하는 이벤트를 저장하는 함수
-        data = [self._to_dict(e) for e in self.events]            #data = 이벤트 파일 안에 있는 이벤트를 가져와 함수 _to_dict에 넣고 반환된 값 
-        with open(self.storage_path, "w", encoding="utf-8") as f: #이벤트를 주어진 경로를 따라 한글로 열어 아래 명령이 끝나면 닫음 (tq w가 왜있는거임?)
-            json.dump(data, f, ensure_ascii=False, indent=2)      #저장 파일이 json형식이기에. json모듈 명령어인 dump를 사용해 data를 파일로 저장함. 
+    def _save(self):
+        data = [self._to_dict(event) for event in self.events]
+        with open(self.storage_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _load(self):
-        if not os.path.exists(self.storage_path):                  #만약 실행 시 컴퓨터에 저장 경로가 존재하지 않다면, 아무것도 반환하지 않는다.
+        if not os.path.exists(self.storage_path):                 #저장경로가 없으면 pass
             return
-        with open(self.storage_path, "r", encoding="utf-8") as f:  #저장 경로가 존재하면, 저장 경로를 한글로 받아와 열고 아래 명령을 실행 후 닫는다.
-            data = json.load(f)                                    #data = 저장한 json파일 (f는 아마 _save()함수에 있는 f아닐까?)
-            for d in data:                                         #data 파일 속 요소에 대해 반복
-                if d.get("type") == "period":
-                    self.events.append({
-                        "id": d["id"],
-                        "type": "period",
-                        "title": d["title"],
-                        "start_date": self._parse_date(d.get("start_date", d["date"])),
-                        "end_date": self._parse_date(d["end_date"]) if d.get("end_date") else None,
-                        "tag": d.get("tag"),
-                        "priority": d.get("priority"),
-                        "color": d.get("color", DEFAULT_EVENT_COLOR),
-                    })
-                    continue
 
-                start = self._parse_datetime(d["date"], d["time"]) #start = _parse_datetime()함수를 실행해 가져온 날과 시간
-                self.events.append({                               #프로그램 실행 시 가져온 events 라는 리스트에 추가함. (start, end 제외하면 json파일이랑 거의 비슷하게 추가함.)
-                    "id": d["id"],
-                    "type": "timed",
-                    "title": d["title"],
-                    "start": start,                                  #start는 위에 있는 지역 변수 가져옴
-                    "end": start + timedelta(minutes=d["duration"]), #끝은 시작에 timedelta 함수를 써서, 지속시간을 더한다.
-                    "duration": d["duration"],
-                    "tag": d.get("tag"),
-                    "priority": d.get("priority"),
-                    "color": d.get("color", DEFAULT_EVENT_COLOR),
+        with open(self.storage_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        for item in data:
+            if item.get("type") == "period":
+                self.events.append({
+                    "id": item["id"],
+                    "type": "period",
+                    "title": item["title"],
+                    "start_date": self._parse_date(item.get("start_date", item["date"])),
+                    "end_date": self._parse_optional_date(item.get("end_date")),
+                    "tag": item.get("tag"),
+                    "priority": item.get("priority"),
+                    "color": item.get("color", DEFAULT_EVENT_COLOR),
                 })
+                continue
 
-    # ------------------------
-    # 핵심 기능
-    # ------------------------
+            start = self._parse_datetime(item["date"], item["time"])
+            recurrence = self._normalize_recurrence(item.get("recurrence"))
+            recurrence_end = self._parse_optional_date(item.get("recurrence_end"))
+            self.events.append({
+                "id": item["id"],
+                "type": "timed",
+                "title": item["title"],
+                "start": start,
+                "end": start + timedelta(minutes=item.get("duration", 60)),
+                "duration": item.get("duration", 60),
+                "tag": item.get("tag"),
+                "priority": item.get("priority"),
+                "color": item.get("color", DEFAULT_EVENT_COLOR),
+                "recurrence": recurrence,
+                "recurrence_end": recurrence_end,
+            })
 
-    def add_event(self, title, date, time, duration=60, tag=None, priority=None, color=None): #이벤트 저장 함수
-        start = self._parse_datetime(date, time)                                  #시작 시간은 받아온 날짜와 시간을 _parse_datetime에 맞추어 정함
-        end = start + timedelta(minutes=duration)                                 #끝나는 시간은 duration을 시작시간에 timedelta를 이용해 더해서 정함
+        self.events.sort(key=self._sort_key)
 
-        self._check_timed_conflict(start, end)
-            
-        event = {                                                      #충돌검사 통과시, 저장 형식에 맞추어 저장
-            "id": self._generate_id(), 
+    def add_event(
+        self,
+        title,
+        date,
+        time,
+        duration=60,
+        tag=None,
+        priority=None,
+        color=None,
+        recurrence=RECURRENCE_NONE,
+        recurrence_end=None,
+    ):
+        start = self._parse_datetime(date, time)
+        recurrence = self._normalize_recurrence(recurrence)
+        recurrence_end = self._parse_optional_date(recurrence_end)
+        if recurrence == RECURRENCE_NONE:
+            recurrence_end = None
+        if recurrence_end is not None and recurrence_end < start.date():
+            raise ValueError("Recurrence end date must be after start date")
+
+        self._check_timed_conflict(start, duration, recurrence, recurrence_end)
+
+        event = {
+            "id": self._generate_id(),
             "type": "timed",
             "title": title,
             "start": start,
-            "end": end,
+            "end": start + timedelta(minutes=duration),
             "duration": duration,
             "tag": tag,
             "priority": priority,
             "color": color or DEFAULT_EVENT_COLOR,
+            "recurrence": recurrence,
+            "recurrence_end": recurrence_end,
         }
 
         self.events.append(event)
-        self.events.sort(key=self._sort_key)       #시작시간 순서로 이벤트 정렬
-        self._save()                               #정렬 후 저장
-
+        self.events.sort(key=self._sort_key)
+        self._save()
         return self._to_dict(event)
 
     def add_period_event(self, title, start_date, end_date=None, tag=None, priority=None, color=None):
         start = self._parse_date(start_date)
-        end = self._parse_date(end_date) if end_date else None
-
+        end = self._parse_optional_date(end_date)
         if end is not None and end < start:
             raise ValueError("Period end date must be after start date")
 
@@ -165,87 +270,93 @@ class CalendarEngine:                               #self를 사용하는 이유
         self.events.append(event)
         self.events.sort(key=self._sort_key)
         self._save()
-
         return self._to_dict(event)
 
-    def list_events(self, date=None):                                #이벤트 리스트 반환 함수
-        if date:
-            target_date = self._parse_date(date)                    #만약 찾는 날이 있다면,
-            result = [                                               #그 날에 있는 이벤트들을 반환
-                self._to_dict(e)                                     #이벤트들을 _to_dict 함수를 거쳐 딕셔너리 형태로 만듬
-                for e in self.events
-                if (
-                    e.get("type") == "period" and self._period_active_on(e, target_date)
-                ) or (
-                    e.get("type") != "period" and e["start"].date() == target_date
-                )
-            ]
-        else:
-            result = [self._to_dict(e) for e in self.events]         #찾는 날이 없다면 전체 일정 반환
+    def list_events(self, date=None):
+        if date is None:
+            return [self._to_dict(event) for event in self.events]
 
+        target_date = self._parse_date(date)
+        result = []
+        for event in self.events:
+            if event.get("type") == "period":
+                if self._period_active_on(event, target_date):
+                    result.append(self._to_dict(event))
+                continue
+
+            if self._timed_occurs_on(event, target_date):
+                result.append(self._to_dict(event, target_date))
+
+        result.sort(key=lambda item: (item.get("time") or "00:00", item["title"]))
         return result
 
-    def delete_event(self, event_id):                                 #이벤트 삭제 함수
-        before = len(self.events)
-        self.events = [e for e in self.events if e["id"] != event_id] #삭제할 이벤트의 id와 다른 이벤트는 남김, 같다면 남기지 않음
+    def get_event(self, event_id):
+        for event in self.events:
+            if event["id"] == event_id:
+                return self._to_dict(event)
+        raise ValueError("Event not found")
 
-        if len(self.events) == before:                                #이벤트 삭제 검사
-            raise ValueError("Event not found")                       #만약 삭제 전 이벤트와 개수가 같다면 오류 알리기
+    def delete_event(self, event_id):
+        before = len(self.events)
+        self.events = [event for event in self.events if event["id"] != event_id]
+        if len(self.events) == before:
+            raise ValueError("Event not found")
 
         self._save()
         return True
 
-    def get_event(self, event_id):
-        for e in self.events:
-            if e["id"] == event_id:
-                return self._to_dict(e)
+    def update_event(self, event_id, **kwargs):
+        for event in self.events:
+            if event["id"] != event_id:
+                continue
 
-        raise ValueError("Event not found")
+            if event.get("type") == "period":
+                title = kwargs.get("title", event["title"])
+                start_date = kwargs.get("start_date", kwargs.get("date", event["start_date"].strftime("%Y-%m-%d")))
+                end_date = kwargs.get("end_date", event["end_date"].strftime("%Y-%m-%d") if event.get("end_date") else None)
+                start = self._parse_date(start_date)
+                end = self._parse_optional_date(end_date)
+                if end is not None and end < start:
+                    raise ValueError("Period end date must be after start date")
 
-    def update_event(self, event_id, **kwargs):                             #이벤트 수정 함수
-        for e in self.events:
-            if e["id"] == event_id:                                         #수정할 이벤트의 id와 같은 이벤트 발견 시, **kwargs로 받아와 수정할 값만 수정
-                if e.get("type") == "period":
-                    title = kwargs.get("title", e["title"])
-                    start_date = kwargs.get("start_date", kwargs.get("date", e["start_date"].strftime("%Y-%m-%d")))
-                    end_date = kwargs.get("end_date", e["end_date"].strftime("%Y-%m-%d") if e.get("end_date") else None)
-                    start = self._parse_date(start_date)
-                    end = self._parse_date(end_date) if end_date else None
-
-                    if end is not None and end < start:
-                        raise ValueError("Period end date must be after start date")
-
-                    e["title"] = title
-                    e["start_date"] = start
-                    e["end_date"] = end
-                    e["tag"] = kwargs.get("tag", e.get("tag"))
-                    e["priority"] = kwargs.get("priority", e.get("priority"))
-                    e["color"] = kwargs.get("color", e.get("color", DEFAULT_EVENT_COLOR))
-                    self.events.sort(key=self._sort_key)
-                    self._save()
-                    return self._to_dict(e)
-
-                title = kwargs.get("title", e["title"])
-                date = kwargs.get("date", e["start"].strftime("%Y-%m-%d"))
-                time = kwargs.get("time", e["start"].strftime("%H:%M"))
-                duration = kwargs.get("duration", e["duration"])
-                tag = kwargs.get("tag", e.get("tag"))
-                priority = kwargs.get("priority", e.get("priority"))
-                color = kwargs.get("color", e.get("color", DEFAULT_EVENT_COLOR))
-                start = self._parse_datetime(date, time)
-                end = start + timedelta(minutes=duration)
-
-                self._check_timed_conflict(start, end, ignore_id=event_id)
-
-                e["title"] = title
-                e["start"] = start
-                e["end"] = end
-                e["duration"] = duration
-                e["tag"] = tag
-                e["priority"] = priority
-                e["color"] = color
+                event["title"] = title
+                event["start_date"] = start
+                event["end_date"] = end
+                event["tag"] = kwargs.get("tag", event.get("tag"))
+                event["priority"] = kwargs.get("priority", event.get("priority"))
+                event["color"] = kwargs.get("color", event.get("color", DEFAULT_EVENT_COLOR))
                 self.events.sort(key=self._sort_key)
                 self._save()
-                return self._to_dict(e)
+                return self._to_dict(event)
 
-        raise ValueError("Event not found")                                  #찾는 이벤트의 id가 없다면 오류 알림
+            title = kwargs.get("title", event["title"])
+            date = kwargs.get("date", event["start"].strftime("%Y-%m-%d"))
+            time_text = kwargs.get("time", event["start"].strftime("%H:%M"))
+            duration = kwargs.get("duration", event["duration"])
+            tag = kwargs.get("tag", event.get("tag"))
+            priority = kwargs.get("priority", event.get("priority"))
+            color = kwargs.get("color", event.get("color", DEFAULT_EVENT_COLOR))
+            recurrence = self._normalize_recurrence(kwargs.get("recurrence", event.get("recurrence", RECURRENCE_NONE)))
+            recurrence_end = self._parse_optional_date(kwargs.get("recurrence_end", event.get("recurrence_end")))
+            start = self._parse_datetime(date, time_text)
+            if recurrence == RECURRENCE_NONE:
+                recurrence_end = None
+            if recurrence_end is not None and recurrence_end < start.date():
+                raise ValueError("Recurrence end date must be after start date")
+
+            self._check_timed_conflict(start, duration, recurrence, recurrence_end, ignore_id=event_id)
+
+            event["title"] = title
+            event["start"] = start
+            event["end"] = start + timedelta(minutes=duration)
+            event["duration"] = duration
+            event["tag"] = tag
+            event["priority"] = priority
+            event["color"] = color
+            event["recurrence"] = recurrence
+            event["recurrence_end"] = recurrence_end
+            self.events.sort(key=self._sort_key)
+            self._save()
+            return self._to_dict(event)
+
+        raise ValueError("Event not found")

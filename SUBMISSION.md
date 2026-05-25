@@ -3,7 +3,7 @@
 ## 제출 목적
 
 이 프로젝트는 PC 바탕화면에서 사용할 수 있는 캘린더 위젯 중간 결과물입니다.
-현재는 PyQt6 UI, 일정 엔진, 한국어 자연어 파서, 명령 실행기, 직접 일정 추가 기능까지 구현되어 있습니다.
+현재는 PyQt6 UI, 일정 엔진, OpenAI API 입력 해석, 로컬 한국어 자연어 파서, 명령 실행기, 직접 일정 추가 기능까지 구현되어 있습니다.
 
 ## 제출에 포함할 파일
 
@@ -11,6 +11,7 @@
 main.py
 calendar_engine.py
 ai_parser_gpt.py
+openai_calendar_client.py
 korean_datetime_parser.py
 holiday_updater.py
 executor.py
@@ -18,6 +19,7 @@ test_parser.py
 test_executor.py
 test_calendar_features.py
 test_holiday_updater.py
+test_openai_calendar_client.py
 requirements.txt
 .env.example
 setup_env.bat
@@ -43,8 +45,9 @@ holiday_cache.json
 ## 파일별 역할
 
 - `main.py`: PyQt6 기반 UI 실행 파일입니다. 3분할 화면, AI 입력창, 캘린더, 일정 목록, 직접 추가 창을 담당합니다.
-- `calendar_engine.py`: 일정 추가, 조회, 삭제, 수정, 저장, 충돌 검사, 색상 저장을 담당합니다.
-- `ai_parser_gpt.py`: 사용자의 한국어 자연어 입력을 `add`, `list`, `delete` 명령으로 변환합니다.
+- `calendar_engine.py`: 일정 추가, 조회, 삭제, 수정, 저장, 충돌 검사, 색상 저장, 반복 일정을 담당합니다.
+- `ai_parser_gpt.py`: OpenAI API 키가 없거나 API 호출이 실패했을 때 사용하는 로컬 한국어 자연어 파서입니다.
+- `openai_calendar_client.py`: OpenAI API 응답을 일정 명령으로 변환하고, 실패 시 로컬 파서로 대체합니다.
 - `korean_datetime_parser.py`: `오늘`, `내일`, `5월 3일`, `오후 세 시`, `음력 1월 1일` 같은 날짜/시간 표현을 해석합니다.
 - `holiday_updater.py`: 공공데이터포털 공식 휴일 API를 2일 주기로 확인하고 `holiday_cache.json`에 저장/조회합니다.
 - `executor.py`: 파서가 만든 명령을 실제 캘린더 엔진에 실행합니다.
@@ -52,8 +55,9 @@ holiday_cache.json
 - `test_executor.py`: 파서 명령과 캘린더 엔진 연결이 의도대로 동작하는지 확인합니다.
 - `test_calendar_features.py`: 음력 변환, 공휴일 계산, 무기한 기간 일정 기능을 확인합니다.
 - `test_holiday_updater.py`: 공식 휴일 응답 파싱, 2일 캐시, API 캐시 조회 기능을 확인합니다.
+- `test_openai_calendar_client.py`: OpenAI 응답 추출, 명령 정규화, API 요청 형식을 확인합니다.
 - `requirements.txt`: 실행에 필요한 Python 패키지를 기록합니다.
-- `.env.example`: 공공데이터포털 API 키를 `.env`에 넣는 형식을 보여주는 예시 파일입니다.
+- `.env.example`: 공공데이터포털 API 키와 OpenAI API 키를 `.env`에 넣는 형식을 보여주는 예시 파일입니다.
 - `setup_env.bat`: Windows에서 가상환경과 패키지 설치를 쉽게 실행하기 위한 파일입니다.
 - `run_calendar.bat`: Windows에서 앱을 쉽게 실행하기 위한 파일입니다.
 
@@ -90,16 +94,19 @@ make_submission.bat
 ## 테스트 방법
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py
+.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py test_openai_calendar_client.py
 ```
 
 ## 현재 구현 범위
 
 - 캘린더 UI 표시
 - 날짜 클릭 시 오른쪽 일정 목록 갱신
-- 자연어 입력으로 일정 추가/조회/삭제
+- OpenAI API 기반 AI 입력으로 일정 추가/조회/삭제
+- OpenAI API 키가 없거나 호출 실패 시 로컬 파서로 자동 대체
+- AI 입력창과 달력 사이 정보 아이콘으로 OpenAI/휴일 API 연결 상태 표시
 - 오른쪽 `+` 버튼으로 일반 일정과 기간 일정 직접 추가
-- 오른쪽 일정 목록 더블클릭으로 일정 수정/삭제
+- 오른쪽 일정 목록 클릭으로 일정 수정/삭제
+- 매주/매달/매년 반복 일정
 - 음력 날짜를 양력으로 변환
 - 대한민국 공휴일 달력 표시
 - 공휴일/기간/일반 일정을 달력 색상 막대로 표시
@@ -110,10 +117,7 @@ make_submission.bat
 - 일정 충돌 검사
 - JSON 파일 저장
 
-## 아직 개선할 부분
+## 이후 개선할 부분
 
-- 일정 수정 UI
-- 일정 삭제 UI 버튼
-- 더 세부적인 반복 일정 처리
-- 실제 OpenAI API 연결
+- 반복 일정의 특정 회차만 예외 처리
 - UI 디자인 세부 조정
