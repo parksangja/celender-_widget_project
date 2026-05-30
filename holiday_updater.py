@@ -7,16 +7,16 @@ from datetime import datetime, timedelta
 from xml.etree import ElementTree
 
 
-BASE_URL = "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo"
-PROJECT_DIR = os.path.dirname(__file__)
-HOLIDAY_CACHE_PATH = os.path.join(PROJECT_DIR, "holiday_cache.json")
-ENV_FILE = os.path.join(PROJECT_DIR, ".env")
-API_KEY_ENV = "KOREA_HOLIDAY_API_KEY"
-UPDATE_INTERVAL_DAYS = 2
-REQUEST_TIMEOUT_SECONDS = 8
+BASE_URL = "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo" #API로 가져오는 파일의 원주소
+PROJECT_DIR = os.path.dirname(__file__) #프로젝트 폴더의 주소
+HOLIDAY_CACHE_PATH = os.path.join(PROJECT_DIR, "holiday_cache.json") #프로젝트 폴더에 holiday_cache.json을 추가함
+ENV_FILE = os.path.join(PROJECT_DIR, ".env") #프로젝트 폴더에 환경변수를 관리할 .evn파일을 추가함
+API_KEY_ENV = "KOREA_HOLIDAY_API_KEY" #API키는 환경변수에 있는 휴일정보 API키
+UPDATE_INTERVAL_DAYS = 2 #업데이트 주기
+REQUEST_TIMEOUT_SECONDS = 8 #요청 제한 시간
 
 
-@dataclass
+@dataclass #이게 뭔지 모르겠네
 class HolidayUpdateResult:
     updated: bool
     reason: str
@@ -24,63 +24,63 @@ class HolidayUpdateResult:
     error: str = ""
 
 
-def get_api_key(env_path=None):
-    env_key = os.environ.get(API_KEY_ENV, "").strip()
-    if env_key:
+def get_api_key(env_path=None): #환경변수에서 API키를 가져오는 함수
+    env_key = os.environ.get(API_KEY_ENV, "").strip() #환경변수에서 휴일정보 API키를 가져옴.
+    if env_key: #만약 키를 못찾으면 아래로 내려감.
         return env_key
 
-    dotenv_key = load_env_value(API_KEY_ENV, env_path or ENV_FILE)
+    dotenv_key = load_env_value(API_KEY_ENV, env_path or ENV_FILE) #환경변수 경로나 파일을 열어 휴일정보 API키를 찾음.
     if dotenv_key:
         return dotenv_key
 
-    return None
+    return None #위 조건문을 모두 실패한다면 None 반환
 
 
-def load_env_value(name, env_path=None):
-    env_path = env_path or ENV_FILE
-    if not os.path.exists(env_path):
+def load_env_value(name, env_path=None): #환경변수 파일을 만드는 함수
+    env_path = env_path or ENV_FILE      #env_path는 받아온 경로나 경로가 없으면 파일로 한다.
+    if not os.path.exists(env_path):     #모종의 이유로 환경변수 경로나 파일이 없다면 None을 반환한다.
         return None
 
-    with open(env_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+    with open(env_path, "r", encoding="utf-8") as f: #환경변수 경로를 찾았다면 해당 파일을 열어 읽음.
+        lines = f.readlines()                        #파일의 내용을 한줄씩 읽어 리스트로 저장
 
     prefix = f"{name}="
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for raw_line in lines:  #개별 요소마다 검사 -> 여러 API에서 휴일정보 API키 찾기
+        line = raw_line.strip() #공백 삭제
+        if not line or line.startswith("#") or "=" not in line: #만약 요소가 빈 문자열이거나 "#"으로 시작하거나 ""="이 포함되어 있지 않다면, 패스
             continue
 
-        if not line.startswith(prefix):
+        if not line.startswith(prefix):                         #만약 요소가 휴일정보 API키의 이름이 아니라면 패스
             continue
 
-        value = line.split("=", 1)[1].strip()
-        if (value.startswith('"') and value.endswith('"')) or (
+        value = line.split("=", 1)[1].strip()                   #휴일정보 API를 찾았다면 첫번째 "=" 기준으로 뒤에 있는 문자열을 가져와 공백 제거
+        if (value.startswith('"') and value.endswith('"')) or ( #문자열이 "["~"]"이거나 "['~']" 이면 안에 있는 "" 과 '' 제거
             value.startswith("'") and value.endswith("'")
         ):
             value = value[1:-1]
 
-        return value.strip() or None
+        return value.strip() or None #순수한 API키를 반환함. API키를 못찾았다면 None반환
 
     return None
 
 
-def load_holiday_cache(cache_path=None):
-    cache_path = cache_path or HOLIDAY_CACHE_PATH
+def load_holiday_cache(cache_path=None): #전에 불러온 휴일정보 캐시를 불러오는 함수
+    cache_path = cache_path or HOLIDAY_CACHE_PATH   #load_env_value처럼 초기 설정
     if not os.path.exists(cache_path):
         return {"updated_at": None, "years": {}}
 
     try:
-        with open(cache_path, "r", encoding="utf-8") as f:
+        with open(cache_path, "r", encoding="utf-8") as f: #파일을 열어 안에 데이터를 data로 불러옴
             data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):                #만약 파일명에 문제가 있거나 디코드에 실패하면, 업데이트 시기를 None으로, 년도를 빈 딕셔너리로 반환
         return {"updated_at": None, "years": {}}
 
-    if not isinstance(data, dict):
+    if not isinstance(data, dict):                         #불러온 data가 딕셔너리 형태가 아니라면, 업데이트 시기를 None으로, 년도를 빈 딕셔너리로 반환
         return {"updated_at": None, "years": {}}
 
-    data.setdefault("updated_at", None)
-    data.setdefault("years", {})
-    return data
+    data.setdefault("updated_at", None) #위 조건문을 통과하면 딕셔너리에 "updated_at" key를 찾고 없으면 해당 키에 None 값을 가지게 딕셔너리에 저장
+    data.setdefault("years", {})        #updated_at과 마찬가지
+    return data                         #data 딕셔너리 반환
 
 
 def save_holiday_cache(cache, cache_path=None):

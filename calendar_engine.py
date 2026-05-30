@@ -1,3 +1,5 @@
+##엔진은 그저 데이터 처리를 위해 존재함/
+#
 import json
 import os
 from datetime import date as date_type          #date: 연도, 월, 일 단위의 날짜를 다루는 표준 라이브러리 클래스
