@@ -64,6 +64,15 @@ def lunar_to_solar(year, month, day, leap_month=False):
     return datetime.strptime(calendar.SolarIsoFormat(), "%Y-%m-%d").date()
 
 
+def has_lunar_date_expression(text):
+    lunar_patterns = [
+        r"\d{4}\s*년\s*음력\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일",
+        r"음력\s*\d{4}\s*년\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일",
+        r"음력\s*윤?\s*\d{1,2}\s*월\s*\d{1,2}\s*일",
+    ]
+    return any(re.search(pattern, text) for pattern in lunar_patterns)
+
+
 def parse_korean_number(value):
     value = value.strip()       #가져온 인수의 공백 제거
     if value.isdigit():         #숫자면 그냥 int씌워서 반환

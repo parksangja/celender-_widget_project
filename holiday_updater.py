@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from xml.etree import ElementTree
 
+from data_safety import load_json_safely, save_json_safely
+
 
 BASE_URL = "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo" #API로 가져오는 파일의 원주소
 PROJECT_DIR = os.path.dirname(__file__) #프로젝트 폴더의 주소
@@ -66,32 +68,22 @@ def load_env_value(name, env_path=None): #환경변수 파일을 만드는 함�
 
 def load_holiday_cache(cache_path=None): #전에 불러온 휴일정보 캐시를 불러오는 함수
     cache_path = cache_path or HOLIDAY_CACHE_PATH   #load_env_value처럼 초기 설정
-    if not os.path.exists(cache_path):
-        return {"updated_at": None, "years": {}}
-
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f: #파일을 열어 안에 데이터를 data로 불러옴
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):                #만약 파일명에 문제가 있거나 디코드에 실패하면, 업데이트 시기를 None으로, 년도를 빈 딕셔너리로 반환
-        return {"updated_at": None, "years": {}}
-
-    if not isinstance(data, dict):                         #불러온 data가 딕셔너리 형태가 아니라면, 업데이트 시기를 None으로, 년도를 빈 딕셔너리로 반환
-        return {"updated_at": None, "years": {}}
+    data = load_json_safely(
+        cache_path,
+        {"updated_at": None, "years": {}},
+        validator=lambda value: isinstance(value, dict),
+    )
 
     data.setdefault("updated_at", None) #위 조건문을 통과하면 딕셔너리에 "updated_at" key를 찾고 없으면 해당 키에 None 값을 가지게 딕셔너리에 저장
     data.setdefault("years", {})        #updated_at과 마찬가지
+    if not isinstance(data["years"], dict):
+        data["years"] = {}
     return data                         #data 딕셔너리 반환
 
 
 def save_holiday_cache(cache, cache_path=None):
     cache_path = cache_path or HOLIDAY_CACHE_PATH
-    temp_path = f"{cache_path}.tmp"
-
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-
-    os.replace(temp_path, cache_path)
+    save_json_safely(cache_path, cache)
 
 
 def is_cache_fresh(cache, now=None, update_interval_days=UPDATE_INTERVAL_DAYS):

@@ -31,6 +31,15 @@ def _matches_condition(event, condition): #실제 이벤트와 명령 조건의 
     return True
 
 
+def _find_first_event(engine, condition):
+    events = engine.list_events(condition.get("date"))
+    targets = [event for event in events if _matches_condition(event, condition)]
+    if not targets:
+        raise ValueError("Matching event not found")
+
+    return targets[0]
+
+
 def execute(command, engine): #실행 함수
     action = command.get("action")
 
@@ -74,5 +83,31 @@ def execute(command, engine): #실행 함수
             engine.delete_event(t["id"])                                  #targets 이벤트들에 있는 id에 따라 삭제
 
         return targets                                                    #삭제한 이벤트 반환
+
+    if action == "skip_occurrence":
+        _require_fields(command, ["occurrence_date", "condition"])
+        condition = dict(command.get("condition") or {})
+        condition.setdefault("date", command["occurrence_date"])
+        target = _find_first_event(engine, condition)
+        return engine.skip_occurrence(target["id"], target.get("occurrence_date") or command["occurrence_date"])
+
+    if action == "update_occurrence":
+        _require_fields(command, ["occurrence_date", "condition", "updates"])
+        condition = dict(command.get("condition") or {})
+        condition.setdefault("date", command["occurrence_date"])
+        target = _find_first_event(engine, condition)
+        return engine.update_occurrence(
+            target["id"],
+            target.get("occurrence_date") or command["occurrence_date"],
+            **command.get("updates", {}),
+        )
+
+    if action == "update_recurrence_end":
+        _require_fields(command, ["condition", "recurrence_end"])
+        condition = command.get("condition") or {}
+        if not condition:
+            raise ValueError("Update condition is required")
+        target = _find_first_event(engine, condition)
+        return engine.update_recurrence_end(target["id"], command.get("recurrence_end"))
 
     raise ValueError(f"Unknown action: {action}")

@@ -2,657 +2,52 @@
 
 import sys
 from datetime import datetime
+from time import perf_counter
 
-from PyQt6.QtCore import QDate, QRectF, QThread, Qt, QTime, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QTextCharFormat
+from PyQt6.QtCore import QDate, Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QCalendarWidget,
-    QCheckBox,
-    QComboBox,
-    QDateEdit,
-    QDialog,
     QFrame,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
     QTextEdit,
-    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
-#UI에 표현하기 위해 만든거 다 가져오기
-from calendar_engine import (
-    DEFAULT_EVENT_COLOR,
-    RECURRENCE_MONTHLY,
-    RECURRENCE_NONE,
-    RECURRENCE_WEEKLY,
-    RECURRENCE_YEARLY,
-    CalendarEngine,
-)
+from calendar_engine import DEFAULT_EVENT_COLOR, CalendarEngine
 from executor import execute
 from holiday_updater import (
     get_api_key as get_holiday_api_key,
     get_korean_holidays,
     is_cache_fresh,
     load_holiday_cache,
-    update_holiday_cache,
 )
-from openai_calendar_client import get_openai_model, is_openai_configured, parse_calendar_command
-
-
-EVENT_COLORS = [
-    DEFAULT_EVENT_COLOR,
-    "#2DBE78",
-    "#F59F00",
-    "#E03131",
-    "#9C36B5",
-    "#15AABF",
-    "#7048E8",
-]
-HOLIDAY_COLOR = "#E03131"
-RECURRENCE_OPTIONS = [
-    ("반복 없음", RECURRENCE_NONE),
-    ("매주", RECURRENCE_WEEKLY),
-    ("매달", RECURRENCE_MONTHLY),
-    ("매년", RECURRENCE_YEARLY),
-]
-RECURRENCE_LABELS = {
-    RECURRENCE_NONE: "",
-    RECURRENCE_WEEKLY: "매주",
-    RECURRENCE_MONTHLY: "매달",
-    RECURRENCE_YEARLY: "매년",
-}
-
-
-def recurrence_label(value):
-    return RECURRENCE_LABELS.get(value or RECURRENCE_NONE, "")
-
-
-class HolidayUpdateThread(QThread):
-    updated = pyqtSignal(object)
-
-    def __init__(self, years, parent=None):
-        super().__init__(parent)
-        self.years = years
-
-    def run(self):
-        result = update_holiday_cache(self.years)
-        self.updated.emit(result)
-
-
-class AICommandThread(QThread):
-    parsed = pyqtSignal(object)
-    failed = pyqtSignal(str)
-
-    def __init__(self, text, parent=None):
-        super().__init__(parent)
-        self.text = text
-
-    def run(self):
-        try:
-            result = parse_calendar_command(self.text)
-        except Exception as err:
-            self.failed.emit(str(err))
-            return
-
-        self.parsed.emit(result)
-
-
-class ConnectionStatusButton(QPushButton):
-    hovered = pyqtSignal()
-
-    def enterEvent(self, event):
-        self.hovered.emit()
-        super().enterEvent(event)
-
-
-class MarkerCalendar(QCalendarWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.marker_provider = None
-        self.max_markers = 3
-
-    def set_marker_provider(self, provider):
-        self.marker_provider = provider
-
-    def paintCell(self, painter, rect, date):
-        super().paintCell(painter, rect, date)
-
-        if self.marker_provider is None:
-            return
-
-        markers = self.marker_provider(date)
-        if not markers:
-            return
-
-        visible_markers = markers[: self.max_markers]
-        hidden_count = len(markers) - len(visible_markers)
-        if hidden_count > 0:
-            visible_markers[-1] = {
-                "title": f"+{hidden_count + 1}",
-                "color": "#6B7280",
-                "continues_before": False,
-                "continues_after": False,
-                "show_title": True,
-            }
-
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        bar_height = 11
-        gap = 2
-        bottom_margin = 5
-        total_height = (bar_height * len(visible_markers)) + (gap * (len(visible_markers) - 1))
-        y = rect.bottom() - bottom_margin - total_height + 1
-
-        for marker in visible_markers:
-            continues_before = marker.get("continues_before", False)
-            continues_after = marker.get("continues_after", False)
-            left_margin = 2 if not continues_before else 0
-            right_margin = 2 if not continues_after else 0
-            x = rect.x() + left_margin
-            width = max(8, rect.width() - left_margin - right_margin)
-            bar_rect = QRectF(x, y, width, bar_height)
-
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(marker.get("color", DEFAULT_EVENT_COLOR)))
-            painter.drawRoundedRect(bar_rect, 3, 3)
-
-            if marker.get("show_title", True):
-                painter.setPen(QColor("#FFFFFF"))
-                painter.drawText(
-                    bar_rect.adjusted(4, 0, -3, 0),
-                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                    marker.get("title", ""),
-                )
-
-            y += bar_height + gap
-
-        painter.restore()
-
-
-class ColorPicker(QWidget):
-    def __init__(self, selected_color=DEFAULT_EVENT_COLOR, parent=None):
-        super().__init__(parent)
-        self._selected_color = selected_color or DEFAULT_EVENT_COLOR
-        self.buttons = []
-
-        layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        for color in EVENT_COLORS:
-            button = QPushButton()
-            button.setFixedSize(24, 24)
-            button.setToolTip(color)
-            button.clicked.connect(lambda _checked=False, value=color: self.set_color(value))
-            self.buttons.append((button, color))
-            layout.addWidget(button)
-
-        layout.addStretch(1)
-        self.setLayout(layout)
-        self.refresh_buttons()
-
-    def color(self):
-        return self._selected_color
-
-    def set_color(self, color):
-        self._selected_color = color or DEFAULT_EVENT_COLOR
-        self.refresh_buttons()
-
-    def refresh_buttons(self):
-        for button, color in self.buttons:
-            border = "#FFFFFF" if color == self._selected_color else "#343B47"
-            button.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background-color: {color};
-                    border: 2px solid {border};
-                    border-radius: 12px;
-                    padding: 0;
-                }}
-                """
-            )
-
-
-class ExpandingCommandInput(QTextEdit): #확대 축소 처리용
-    def __init__(self):
-        super().__init__()
-
-        self.min_input_height = 48
-        self.max_input_height = 140
-
-        self.setObjectName("commandInput")
-        self.setAcceptRichText(False)
-        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self.setMinimumHeight(self.min_input_height)
-        self.setMaximumHeight(self.max_input_height)
-        self.setFixedHeight(self.min_input_height)
-        self.document().contentsChanged.connect(self.adjust_height)
-
-    def adjust_height(self):
-        document_height = int(self.document().size().height()) + 18
-        next_height = max(self.min_input_height, min(document_height, self.max_input_height))
-        self.setFixedHeight(next_height)
-
-
-class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나오는 요소들
-    def __init__(self, selected_date, parent=None):
-        super().__init__(parent)
-
-        self.setWindowTitle("일정 직접 추가")
-        self.setModal(True)
-        self.setMinimumWidth(360)
-
-        self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("제목")
-
-        self.period_checkbox = QCheckBox("기간 일정")
-        self.period_checkbox.toggled.connect(self.update_mode_widgets)
-
-        self.date_input = QDateEdit()
-        self.date_input.setCalendarPopup(True)
-        self.date_input.setDisplayFormat("yyyy-MM-dd")
-        self.date_input.setDate(selected_date)
-
-        self.end_date_input = QDateEdit()
-        self.end_date_input.setCalendarPopup(True)
-        self.end_date_input.setDisplayFormat("yyyy-MM-dd")
-        self.end_date_input.setDate(selected_date)
-
-        self.no_end_checkbox = QCheckBox("종료일 없음")
-        self.no_end_checkbox.setChecked(True)
-        self.no_end_checkbox.toggled.connect(self.update_mode_widgets)
-
-        self.start_time_input = QTimeEdit()
-        self.start_time_input.setDisplayFormat("HH:mm")
-        self.start_time_input.setTime(QTime(9, 0))
-
-        self.end_time_input = QTimeEdit()
-        self.end_time_input.setDisplayFormat("HH:mm")
-        self.end_time_input.setTime(QTime(10, 0))
-
-        self.recurrence_input = QComboBox()
-        for label, value in RECURRENCE_OPTIONS:
-            self.recurrence_input.addItem(label, value)
-        self.recurrence_input.currentIndexChanged.connect(self.update_mode_widgets)
-
-        self.recurrence_end_checkbox = QCheckBox("반복 종료일 지정")
-        self.recurrence_end_checkbox.toggled.connect(self.update_mode_widgets)
-
-        self.recurrence_end_date_input = QDateEdit()
-        self.recurrence_end_date_input.setCalendarPopup(True)
-        self.recurrence_end_date_input.setDisplayFormat("yyyy-MM-dd")
-        self.recurrence_end_date_input.setDate(selected_date.addMonths(1))
-
-        self.color_picker = ColorPicker()
-
-        self.error_label = QLabel()
-        self.error_label.setObjectName("dialogError")
-
-        self.cancel_button = QPushButton("취소")
-        self.cancel_button.setObjectName("secondaryButton")
-        self.cancel_button.clicked.connect(self.reject)
-
-        self.save_button = QPushButton("저장")
-        self.save_button.clicked.connect(self.accept)
-
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
-        form_layout.setHorizontalSpacing(14)
-        form_layout.setVerticalSpacing(12)
-
-        self.date_label = QLabel("날짜")
-        self.start_time_label = QLabel("시작")
-        self.end_time_label = QLabel("종료")
-        self.recurrence_label = QLabel("반복")
-        self.recurrence_end_label = QLabel("반복 종료일")
-        self.no_end_label = QLabel("")
-        self.end_date_label = QLabel("종료일")
-
-        form_layout.addRow("제목", self.title_input)
-        form_layout.addRow("", self.period_checkbox)
-        form_layout.addRow(self.date_label, self.date_input)
-        form_layout.addRow(self.start_time_label, self.start_time_input)
-        form_layout.addRow(self.end_time_label, self.end_time_input)
-        form_layout.addRow(self.recurrence_label, self.recurrence_input)
-        form_layout.addRow("", self.recurrence_end_checkbox)
-        form_layout.addRow(self.recurrence_end_label, self.recurrence_end_date_input)
-        form_layout.addRow(self.no_end_label, self.no_end_checkbox)
-        form_layout.addRow(self.end_date_label, self.end_date_input)
-        form_layout.addRow("색상", self.color_picker)
-
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.save_button)
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-        layout.addLayout(form_layout)
-        layout.addWidget(self.error_label)
-        layout.addLayout(button_layout)
-
-        self.setLayout(layout)
-        self.update_mode_widgets()
-
-    def update_mode_widgets(self):
-        is_period = self.period_checkbox.isChecked()
-        has_recurrence = self.recurrence_value() != RECURRENCE_NONE
-        self.date_label.setText("시작일" if is_period else "날짜")
-
-        for widget in [
-            self.start_time_label,
-            self.start_time_input,
-            self.end_time_label,
-            self.end_time_input,
-            self.recurrence_label,
-            self.recurrence_input,
-        ]:
-            widget.setVisible(not is_period)
-
-        for widget in [
-            self.recurrence_end_checkbox,
-            self.recurrence_end_label,
-            self.recurrence_end_date_input,
-        ]:
-            widget.setVisible((not is_period) and has_recurrence)
-
-        for widget in [
-            self.no_end_label,
-            self.no_end_checkbox,
-            self.end_date_label,
-            self.end_date_input,
-        ]:
-            widget.setVisible(is_period)
-
-        self.end_date_input.setEnabled(is_period and not self.no_end_checkbox.isChecked())
-        self.recurrence_end_date_input.setEnabled(
-            (not is_period) and has_recurrence and self.recurrence_end_checkbox.isChecked()
-        )
-
-    def recurrence_value(self):
-        return self.recurrence_input.currentData() or RECURRENCE_NONE
-
-    def event_data(self):
-        title = self.title_input.text().strip()
-        if not title:
-            raise ValueError("제목을 입력해주세요")
-
-        if self.period_checkbox.isChecked():
-            start_date = self.date_input.date().toString("yyyy-MM-dd")
-            end_date = None if self.no_end_checkbox.isChecked() else self.end_date_input.date().toString("yyyy-MM-dd")
-
-            if end_date is not None and end_date < start_date:
-                raise ValueError("종료일은 시작일보다 빠를 수 없습니다")
-
-            return {
-                "type": "period",
-                "title": title,
-                "start_date": start_date,
-                "end_date": end_date,
-                "color": self.color_picker.color(),
-            }
-
-        start_time = self.start_time_input.time()
-        end_time = self.end_time_input.time()
-        start_minutes = (start_time.hour() * 60) + start_time.minute()
-        end_minutes = (end_time.hour() * 60) + end_time.minute()
-        duration = end_minutes - start_minutes
-
-        if duration <= 0:
-            raise ValueError("종료 시간은 시작 시간보다 늦어야 합니다")
-
-        recurrence = self.recurrence_value()
-        recurrence_end = (
-            self.recurrence_end_date_input.date().toString("yyyy-MM-dd")
-            if recurrence != RECURRENCE_NONE and self.recurrence_end_checkbox.isChecked()
-            else None
-        )
-        event_date = self.date_input.date().toString("yyyy-MM-dd")
-        if recurrence_end is not None and recurrence_end < event_date:
-            raise ValueError("반복 종료일은 시작일보다 빠를 수 없습니다")
-
-        return {
-            "type": "timed",
-            "title": title,
-            "date": event_date,
-            "time": start_time.toString("HH:mm"),
-            "duration": duration,
-            "color": self.color_picker.color(),
-            "recurrence": recurrence,
-            "recurrence_end": recurrence_end,
-        }
-
-    def accept(self):
-        try:
-            self.event_data()
-        except ValueError as err:
-            self.error_label.setText(str(err))
-            return
-
-        super().accept()
-
-
-class EventEditDialog(QDialog):
-    def __init__(self, event, parent=None):
-        super().__init__(parent)
-
-        self.event = event
-        self.requested_delete = False
-        self.event_type = event.get("type", "timed")
-
-        self.setWindowTitle("일정 수정")
-        self.setModal(True)
-        self.setMinimumWidth(380)
-
-        self.title_input = QLineEdit(event.get("title", ""))
-        self.color_picker = ColorPicker(event.get("color", DEFAULT_EVENT_COLOR))
-        self.error_label = QLabel()
-        self.error_label.setObjectName("dialogError")
-
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
-        form_layout.setHorizontalSpacing(14)
-        form_layout.setVerticalSpacing(12)
-        form_layout.addRow("제목", self.title_input)
-
-        if self.event_type == "period":
-            self.start_date_input = QDateEdit()
-            self.start_date_input.setCalendarPopup(True)
-            self.start_date_input.setDisplayFormat("yyyy-MM-dd")
-            self.start_date_input.setDate(QDate.fromString(event["start_date"], "yyyy-MM-dd"))
-
-            self.no_end_checkbox = QCheckBox("종료일 없음")
-            self.no_end_checkbox.setChecked(event.get("end_date") is None)
-
-            self.end_date_input = QDateEdit()
-            self.end_date_input.setCalendarPopup(True)
-            self.end_date_input.setDisplayFormat("yyyy-MM-dd")
-            end_date = event.get("end_date") or event["start_date"]
-            self.end_date_input.setDate(QDate.fromString(end_date, "yyyy-MM-dd"))
-            self.end_date_input.setEnabled(not self.no_end_checkbox.isChecked())
-            self.no_end_checkbox.toggled.connect(self.end_date_input.setDisabled)
-
-            form_layout.addRow("시작일", self.start_date_input)
-            form_layout.addRow("", self.no_end_checkbox)
-            form_layout.addRow("종료일", self.end_date_input)
-        else:
-            self.date_input = QDateEdit()
-            self.date_input.setCalendarPopup(True)
-            self.date_input.setDisplayFormat("yyyy-MM-dd")
-            self.date_input.setDate(QDate.fromString(event["date"], "yyyy-MM-dd"))
-
-            self.start_time_input = QTimeEdit()
-            self.start_time_input.setDisplayFormat("HH:mm")
-            self.start_time_input.setTime(QTime.fromString(event["time"], "HH:mm"))
-
-            start_minutes = (self.start_time_input.time().hour() * 60) + self.start_time_input.time().minute()
-            end_minutes = start_minutes + int(event.get("duration", 60))
-            self.end_time_input = QTimeEdit()
-            self.end_time_input.setDisplayFormat("HH:mm")
-            self.end_time_input.setTime(QTime((end_minutes // 60) % 24, end_minutes % 60))
-
-            self.recurrence_input = QComboBox()
-            for label, value in RECURRENCE_OPTIONS:
-                self.recurrence_input.addItem(label, value)
-            self.set_recurrence_value(event.get("recurrence", RECURRENCE_NONE))
-            self.recurrence_input.currentIndexChanged.connect(self.update_recurrence_widgets)
-
-            self.recurrence_end_checkbox = QCheckBox("반복 종료일 지정")
-            self.recurrence_end_checkbox.setChecked(event.get("recurrence_end") is not None)
-            self.recurrence_end_checkbox.toggled.connect(self.update_recurrence_widgets)
-
-            self.recurrence_end_date_input = QDateEdit()
-            self.recurrence_end_date_input.setCalendarPopup(True)
-            self.recurrence_end_date_input.setDisplayFormat("yyyy-MM-dd")
-            recurrence_end = event.get("recurrence_end") or event["date"]
-            self.recurrence_end_date_input.setDate(QDate.fromString(recurrence_end, "yyyy-MM-dd"))
-
-            form_layout.addRow("날짜", self.date_input)
-            form_layout.addRow("시작", self.start_time_input)
-            form_layout.addRow("종료", self.end_time_input)
-            self.recurrence_end_label = QLabel("반복 종료일")
-            form_layout.addRow("반복", self.recurrence_input)
-            form_layout.addRow("", self.recurrence_end_checkbox)
-            form_layout.addRow(self.recurrence_end_label, self.recurrence_end_date_input)
-            self.update_recurrence_widgets()
-
-        form_layout.addRow("색상", self.color_picker)
-
-        self.delete_button = QPushButton("삭제")
-        self.delete_button.setObjectName("dangerButton")
-        self.delete_button.clicked.connect(self.request_delete)
-
-        self.cancel_button = QPushButton("취소")
-        self.cancel_button.setObjectName("secondaryButton")
-        self.cancel_button.clicked.connect(self.reject)
-
-        self.save_button = QPushButton("저장")
-        self.save_button.clicked.connect(self.accept)
-
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.delete_button)
-        button_layout.addStretch(1)
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.save_button)
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
-        layout.addLayout(form_layout)
-        layout.addWidget(self.error_label)
-        layout.addLayout(button_layout)
-
-        self.setLayout(layout)
-
-    def recurrence_value(self):
-        if self.event_type == "period":
-            return RECURRENCE_NONE
-        return self.recurrence_input.currentData() or RECURRENCE_NONE
-
-    def set_recurrence_value(self, value):
-        value = value or RECURRENCE_NONE
-        for index in range(self.recurrence_input.count()):
-            if self.recurrence_input.itemData(index) == value:
-                self.recurrence_input.setCurrentIndex(index)
-                return
-
-    def update_recurrence_widgets(self):
-        if self.event_type == "period":
-            return
-
-        has_recurrence = self.recurrence_value() != RECURRENCE_NONE
-        for widget in [
-            self.recurrence_end_checkbox,
-            self.recurrence_end_label,
-            self.recurrence_end_date_input,
-        ]:
-            widget.setVisible(has_recurrence)
-
-        self.recurrence_end_date_input.setEnabled(
-            has_recurrence and self.recurrence_end_checkbox.isChecked()
-        )
-
-    def event_data(self):
-        title = self.title_input.text().strip()
-        if not title:
-            raise ValueError("제목을 입력해주세요")
-
-        if self.event_type == "period":
-            start_date = self.start_date_input.date().toString("yyyy-MM-dd")
-            end_date = None if self.no_end_checkbox.isChecked() else self.end_date_input.date().toString("yyyy-MM-dd")
-
-            if end_date is not None and end_date < start_date:
-                raise ValueError("종료일은 시작일보다 빠를 수 없습니다")
-
-            return {
-                "title": title,
-                "start_date": start_date,
-                "end_date": end_date,
-                "color": self.color_picker.color(),
-            }
-
-        start_time = self.start_time_input.time()
-        end_time = self.end_time_input.time()
-        start_minutes = (start_time.hour() * 60) + start_time.minute()
-        end_minutes = (end_time.hour() * 60) + end_time.minute()
-        duration = end_minutes - start_minutes
-
-        if duration <= 0:
-            raise ValueError("종료 시간은 시작 시간보다 늦어야 합니다")
-
-        recurrence = self.recurrence_value()
-        recurrence_end = (
-            self.recurrence_end_date_input.date().toString("yyyy-MM-dd")
-            if recurrence != RECURRENCE_NONE and self.recurrence_end_checkbox.isChecked()
-            else None
-        )
-        event_date = self.date_input.date().toString("yyyy-MM-dd")
-        if recurrence_end is not None and recurrence_end < event_date:
-            raise ValueError("반복 종료일은 시작일보다 빠를 수 없습니다")
-
-        return {
-            "title": title,
-            "date": event_date,
-            "time": start_time.toString("HH:mm"),
-            "duration": duration,
-            "color": self.color_picker.color(),
-            "recurrence": recurrence,
-            "recurrence_end": recurrence_end,
-        }
-
-    def request_delete(self):
-        answer = QMessageBox.question(
-            self,
-            "일정 삭제",
-            "이 일정을 삭제할까요?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        self.requested_delete = True
-        super().accept()
-
-    def accept(self):
-        try:
-            self.event_data()
-        except ValueError as err:
-            self.error_label.setText(str(err))
-            return
-
-        super().accept()
+from openai_calendar_client import get_openai_model, is_openai_configured
+from ui_styles import main_style_sheet
+from ui_support import (
+    AICommandThread,
+    CompactIconButton,
+    ConnectionStatusButton,
+    EventEditDialog,
+    ExpandingCommandInput,
+    HOLIDAY_COLOR,
+    HolidayUpdateThread,
+    ManualEventDialog,
+    MarkerCalendar,
+    SettingsDialog,
+    apply_runtime_env,
+    is_ai_confirmation_acceptance,
+    is_ai_confirmation_rejection,
+    recurrence_label,
+    save_env_values,
+)
 
 
 class CalendarWidget(QWidget): #메인 UI 구현
@@ -662,10 +57,26 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.engine = CalendarEngine()
         self.selected_date = QDate.currentDate()
         self.old_pos = None
+        self.ai_panel_collapsed = False
+        self.expanded_minimum_width = 900
+        self.expanded_stretches = (3, 4, 2)
+        self.collapsed_stretches = (2, 11, 5)
+        self.ai_collapse_progress = 0.0
+        self.ai_panel_width = 280
+        self.ai_panel_animation_duration = 140
+        self.ai_panel_animation_timer = QTimer(self)
+        self.ai_panel_animation_timer.setInterval(16)
+        self.ai_panel_animation_timer.timeout.connect(self.update_ai_panel_animation_frame)
+        self.ai_animation_start_time = 0.0
+        self.ai_animation_start_progress = 0.0
+        self.ai_animation_end_progress = 0.0
+        self.ai_animation_target_collapsed = False
         self.holiday_cache = {}
         self.holiday_update_thread = None
         self.ai_command_thread = None
         self.pending_ai_text = ""
+        self.pending_confirmation_command = None
+        self.pending_confirmation_prefix = ""
         self.openai_connection_status = self.initial_openai_connection_status()
         self.holiday_connection_status = self.initial_holiday_connection_status()
 
@@ -676,32 +87,91 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def init_ui(self): #초기 설정
         self.setWindowTitle("Mini Calendar Widget")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(self.expanded_minimum_width, 600)
         self.resize(960, 600)
-        self.setWindowFlags(Qt.WindowType.Tool)
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+
+        window_layout = QVBoxLayout()
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        window_layout.setSpacing(0)
+
+        self.title_bar = self._build_title_bar()
+
+        body = QWidget()
+        body.setObjectName("body")
+        self.body = body
 
         root_layout = QHBoxLayout()
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(10)
+        self.body_layout = root_layout
 
         self.ai_panel = self._build_ai_panel()
+        self.ai_slot = self._build_ai_slot()
+        self.ai_panel.setParent(self.ai_slot)
         self.status_panel = self._build_status_panel()
         self.calendar_panel = self._build_calendar_panel()
         self.events_panel = self._build_events_panel()
 
-        root_layout.addWidget(self.ai_panel, 3)
+        root_layout.addWidget(self.ai_slot, 3)
         root_layout.addWidget(self.status_panel)
         root_layout.addWidget(self.calendar_panel, 4)
         root_layout.addWidget(self.events_panel, 2)
+        self.set_panel_stretches(0.0)
 
-        self.setLayout(root_layout)
+        body.setLayout(root_layout)
+        window_layout.addWidget(self.title_bar)
+        window_layout.addWidget(body, 1)
+
+        self.setLayout(window_layout)
         self.setStyleSheet(self._style_sheet())
         self.show()
+        self.apply_ai_panel_progress(0.0)
+
+    def _build_title_bar(self):
+        title_bar = QFrame()
+        title_bar.setObjectName("titleBar")
+        title_bar.setFixedHeight(30)
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(10, 0, 6, 0)
+        layout.setSpacing(8)
+
+        title = QLabel("Mini Calendar Widget")
+        title.setObjectName("windowTitle")
+
+        close_button = QPushButton("X")
+        close_button.setObjectName("windowCloseButton")
+        close_button.setFixedSize(22, 22)
+        close_button.clicked.connect(self.close)
+
+        layout.addWidget(title)
+        layout.addStretch(1)
+        layout.addWidget(close_button)
+        title_bar.setLayout(layout)
+
+        title_bar.mousePressEvent = self.mousePressEvent
+        title_bar.mouseMoveEvent = self.mouseMoveEvent
+        title_bar.mouseReleaseEvent = self.mouseReleaseEvent
+        title.mousePressEvent = self.mousePressEvent
+        title.mouseMoveEvent = self.mouseMoveEvent
+        title.mouseReleaseEvent = self.mouseReleaseEvent
+        return title_bar
+
+    def _build_ai_slot(self):
+        slot = QFrame()
+        slot.setObjectName("aiSlot")
+        slot.setMinimumWidth(self.ai_panel_width)
+        return slot
 
     def _build_ai_panel(self): #UI에 있는 3개 구역 중, 첫번째 구역인 AI입력 구역 붙이는 함수
         panel = QFrame()
         panel.setObjectName("panel")
-        panel.setMinimumWidth(280)
+        panel.setMinimumWidth(self.ai_panel_width)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(16, 16, 16, 16)
@@ -715,25 +185,31 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.result_box.setReadOnly(True)
         self.result_box.setText("대기 중")
 
-        input_area = QFrame()
-        input_area.setObjectName("inputArea")
-        input_layout = QVBoxLayout()
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(8)
-
         self.command_input = ExpandingCommandInput()
         self.command_input.setPlaceholderText("일정을 입력하세요")
+        self.command_input.submitted.connect(self.run_command)
 
-        self.run_button = QPushButton("실행")
-        self.run_button.clicked.connect(self.run_command)
+        self.confirmation_action_area = QFrame()
+        confirmation_layout = QHBoxLayout()
+        confirmation_layout.setContentsMargins(0, 0, 0, 0)
+        confirmation_layout.setSpacing(8)
 
-        input_layout.addWidget(self.command_input)
-        input_layout.addWidget(self.run_button)
-        input_area.setLayout(input_layout)
+        self.confirm_execute_button = QPushButton("실행")
+        self.confirm_execute_button.clicked.connect(self.accept_pending_ai_command)
+
+        self.confirm_cancel_button = QPushButton("취소")
+        self.confirm_cancel_button.setObjectName("secondaryButton")
+        self.confirm_cancel_button.clicked.connect(self.reject_pending_ai_command)
+
+        confirmation_layout.addWidget(self.confirm_cancel_button)
+        confirmation_layout.addWidget(self.confirm_execute_button)
+        self.confirmation_action_area.setLayout(confirmation_layout)
+        self.confirmation_action_area.setVisible(False)
 
         layout.addWidget(title)
         layout.addWidget(self.result_box, 1)
-        layout.addWidget(input_area)
+        layout.addWidget(self.command_input)
+        layout.addWidget(self.confirmation_action_area)
 
         panel.setLayout(layout)
         return panel
@@ -741,19 +217,28 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def _build_status_panel(self):
         panel = QFrame()
         panel.setObjectName("statusRail")
-        panel.setFixedWidth(30)
+        panel.setFixedWidth(28)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 12, 0, 0)
         layout.setSpacing(0)
 
+        self.ai_toggle_button = CompactIconButton("≡")
+        self.ai_toggle_button.setObjectName("aiToggleIcon")
+        self.ai_toggle_button.setFixedSize(24, 24)
+        self.ai_toggle_button.setToolTip("AI 입력창 접기")
+        self.ai_toggle_button.clicked.connect(self.toggle_ai_panel)
+
         self.connection_status_button = ConnectionStatusButton("i")
         self.connection_status_button.setObjectName("connectionStatusIcon")
-        self.connection_status_button.setFixedSize(24, 24)
-        self.connection_status_button.setCursor(Qt.CursorShape.WhatsThisCursor)
+        self.connection_status_button.setFixedSize(12, 12)
+        self.connection_status_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.connection_status_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.connection_status_button.hovered.connect(self.refresh_connection_status_from_sources)
+        self.connection_status_button.clicked.connect(self.open_settings_dialog)
 
+        layout.addWidget(self.ai_toggle_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(6)
         layout.addWidget(self.connection_status_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addStretch(1)
         panel.setLayout(layout)
@@ -821,227 +306,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
         return panel
 
     def _style_sheet(self): #UI디자인
-        return """
-            QWidget {
-                background-color: #101114;
-                color: #F2F4F8;
-                font-family: Malgun Gothic;
-                font-size: 13px;
-                letter-spacing: 0px;
-            }
-
-            QFrame#panel,
-            QFrame#calendarPanel {
-                background-color: #181A1F;
-                border: 1px solid #2D313A;
-                border-radius: 8px;
-            }
-
-            QLabel#sectionTitle {
-                color: #F2F4F8;
-                font-size: 17px;
-                font-weight: 700;
-            }
-
-            QLabel#monthTitle {
-                color: #DDE3EE;
-                font-size: 18px;
-                font-weight: 700;
-            }
-
-            QTextEdit#commandInput {
-                background-color: #0F1115;
-                border: 1px solid #3A414E;
-                border-radius: 6px;
-                padding: 10px 12px;
-                selection-background-color: #3D7EFF;
-            }
-
-            QTextEdit#commandInput:focus {
-                border-color: #5B8CFF;
-            }
-
-            QPushButton {
-                background-color: #2F6FED;
-                border: 0;
-                border-radius: 6px;
-                color: white;
-                font-weight: 700;
-                padding: 10px 12px;
-            }
-
-            QPushButton:hover {
-                background-color: #3E7CFA;
-            }
-
-            QPushButton:pressed {
-                background-color: #235BC6;
-            }
-
-            QPushButton#secondaryButton {
-                background-color: #2A2F39;
-                color: #DDE3EE;
-            }
-
-            QPushButton#secondaryButton:hover {
-                background-color: #343B47;
-            }
-
-            QPushButton#dangerButton {
-                background-color: #B42318;
-                color: #FFFFFF;
-            }
-
-            QPushButton#dangerButton:hover {
-                background-color: #D92D20;
-            }
-
-            QPushButton#addEventButton {
-                background-color: #2F6FED;
-                border-radius: 18px;
-                font-size: 22px;
-                font-weight: 700;
-                padding: 0;
-            }
-
-            QPushButton#addEventButton:hover {
-                background-color: #3E7CFA;
-            }
-
-            QFrame#statusRail {
-                background-color: transparent;
-                border: 0;
-            }
-
-            QPushButton#connectionStatusIcon {
-                background-color: #111318;
-                border: 2px solid #8B95A7;
-                border-radius: 12px;
-                color: #DDE3EE;
-                font-size: 15px;
-                font-weight: 700;
-                padding: 0;
-            }
-
-            QPushButton#connectionStatusIcon:hover {
-                background-color: #20242C;
-            }
-
-            QPushButton#connectionStatusIcon[state="ok"] {
-                border-color: #2DBE78;
-                color: #2DBE78;
-            }
-
-            QPushButton#connectionStatusIcon[state="warning"] {
-                border-color: #F59F00;
-                color: #F59F00;
-            }
-
-            QPushButton#connectionStatusIcon[state="checking"] {
-                border-color: #15AABF;
-                color: #15AABF;
-            }
-
-            QToolTip {
-                background-color: #111318;
-                border: 1px solid #343B47;
-                border-radius: 6px;
-                color: #F2F4F8;
-                padding: 8px;
-            }
-
-            QTextEdit#resultBox,
-            QListWidget#eventList {
-                background-color: #0F1115;
-                border: 1px solid #2D313A;
-                border-radius: 6px;
-                padding: 8px;
-            }
-
-            QLineEdit,
-            QDateEdit,
-            QTimeEdit {
-                background-color: #0F1115;
-                border: 1px solid #3A414E;
-                border-radius: 6px;
-                color: #F2F4F8;
-                padding: 8px 10px;
-                selection-background-color: #3D7EFF;
-            }
-
-            QLineEdit:focus,
-            QDateEdit:focus,
-            QTimeEdit:focus {
-                border-color: #5B8CFF;
-            }
-
-            QLabel#dialogError {
-                color: #FF8A8A;
-            }
-
-            QCheckBox {
-                color: #DDE3EE;
-                spacing: 8px;
-            }
-
-            QListWidget#eventList::item {
-                border-bottom: 1px solid #242832;
-                padding: 9px 4px;
-            }
-
-            QListWidget#eventList::item:selected {
-                background-color: #243A66;
-                color: #FFFFFF;
-            }
-
-            QCalendarWidget {
-                background-color: #181A1F;
-                color: #F2F4F8;
-                border: 0;
-            }
-
-            QCalendarWidget QWidget#qt_calendar_navigationbar {
-                background-color: #181A1F;
-            }
-
-            QCalendarWidget QToolButton {
-                background-color: #20242C;
-                border: 1px solid #313846;
-                border-radius: 5px;
-                color: #F2F4F8;
-                margin: 3px;
-                padding: 6px;
-            }
-
-            QCalendarWidget QToolButton:hover {
-                background-color: #29303B;
-            }
-
-            QCalendarWidget QMenu {
-                background-color: #181A1F;
-                border: 1px solid #313846;
-                color: #F2F4F8;
-            }
-
-            QCalendarWidget QSpinBox {
-                background-color: #0F1115;
-                border: 1px solid #313846;
-                border-radius: 4px;
-                color: #F2F4F8;
-                padding: 4px;
-            }
-
-            QCalendarWidget QAbstractItemView {
-                background-color: #111318;
-                border: 1px solid #2D313A;
-                border-radius: 6px;
-                color: #DDE3EE;
-                gridline-color: #252A33;
-                selection-background-color: #2F6FED;
-                selection-color: #FFFFFF;
-                outline: 0;
-            }
-        """
+        return main_style_sheet()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1052,6 +317,10 @@ class CalendarWidget(QWidget): #메인 UI 구현
             delta = event.globalPosition().toPoint() - self.old_pos
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.old_pos = event.globalPosition().toPoint()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.old_pos = None
 
     def on_page_changed(self, year, month):
         self.update_month_label(year, month)
@@ -1160,8 +429,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def clear_ai_command_thread(self):
         self.ai_command_thread = None
         self.pending_ai_text = ""
-        self.run_button.setEnabled(True)
-        self.run_button.setText("실행")
+        self.command_input.setEnabled(True)
 
     def refresh_connection_status_from_sources(self):
         if self.ai_command_thread and self.ai_command_thread.isRunning():
@@ -1293,6 +561,143 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.connection_status_button.style().polish(self.connection_status_button)
         self.connection_status_button.update()
 
+    def open_settings_dialog(self):
+        self.refresh_connection_status_from_sources()
+        dialog = SettingsDialog(self)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        settings = dialog.settings_data()
+        try:
+            save_env_values(settings)
+            apply_runtime_env(settings)
+        except Exception as err:
+            QMessageBox.warning(self, "설정 저장 실패", str(err))
+            return
+
+        self.openai_connection_status = self.initial_openai_connection_status()
+        self.holiday_cache.clear()
+        self.holiday_connection_status = self.initial_holiday_connection_status()
+        self.refresh_connection_status_icon()
+        self.apply_holiday_styles()
+        self.refresh_events()
+        self.start_holiday_update()
+        self.show_result("설정 저장됨\nAPI 연결 상태가 갱신되었습니다.")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.apply_ai_panel_progress(self.ai_collapse_progress)
+
+    def clamp_ai_progress(self, progress):
+        return max(0.0, min(1.0, float(progress)))
+
+    def interpolated_stretches(self, progress):
+        progress = self.clamp_ai_progress(progress)
+        return tuple(
+            expanded + (collapsed - expanded) * progress
+            for expanded, collapsed in zip(self.expanded_stretches, self.collapsed_stretches)
+        )
+
+    def set_panel_stretches(self, progress):
+        ai_stretch, calendar_stretch, events_stretch = self.interpolated_stretches(progress)
+        scale = 100
+        self.body_layout.setStretch(0, max(1, int(round(ai_stretch * scale))))
+        self.body_layout.setStretch(1, 0)
+        self.body_layout.setStretch(2, max(1, int(round(calendar_stretch * scale))))
+        self.body_layout.setStretch(3, max(1, int(round(events_stretch * scale))))
+        self.ai_slot.setMinimumWidth(max(0, int(round(self.ai_panel_width * (1.0 - progress)))))
+        self.body_layout.invalidate()
+        self.body_layout.activate()
+
+    def apply_ai_panel_progress(self, progress):
+        if not hasattr(self, "ai_panel") or not hasattr(self, "ai_slot"):
+            return
+
+        progress = self.clamp_ai_progress(progress)
+        self.ai_collapse_progress = progress
+        self.set_panel_stretches(progress)
+
+        panel_width = max(self.ai_panel_width, self.ai_slot.width())
+        x = -int(round(panel_width * progress))
+        self.ai_panel.setGeometry(
+            x,
+            0,
+            panel_width,
+            self.ai_slot.height(),
+        )
+        self.ai_slot.update()
+        self.body.update()
+
+    def repaint_after_panel_toggle(self):
+        self.body_layout.invalidate()
+        self.body_layout.activate()
+        QApplication.processEvents()
+
+        for widget in [
+            self,
+            self.title_bar,
+            self.body,
+            self.ai_slot,
+            self.ai_panel,
+            self.status_panel,
+            self.calendar_panel,
+            self.events_panel,
+            self.calendar,
+            self.event_list,
+        ]:
+            widget.updateGeometry()
+            widget.update()
+            widget.repaint()
+
+        QApplication.processEvents()
+
+    def set_ai_toggle_visual_state(self):
+        self.ai_toggle_button.setToolTip(
+            "AI 입력창 펼치기" if self.ai_panel_collapsed else "AI 입력창 접기"
+        )
+        self.ai_toggle_button.setProperty(
+            "collapsed",
+            "true" if self.ai_panel_collapsed else "false",
+        )
+        self.ai_toggle_button.style().unpolish(self.ai_toggle_button)
+        self.ai_toggle_button.style().polish(self.ai_toggle_button)
+        self.ai_toggle_button.update()
+
+    def toggle_ai_panel(self):
+        if self.ai_panel_animation_timer.isActive():
+            return
+
+        self.ai_animation_target_collapsed = not self.ai_panel_collapsed
+        self.ai_animation_start_progress = self.ai_collapse_progress
+        self.ai_animation_end_progress = 1.0 if self.ai_animation_target_collapsed else 0.0
+        self.ai_animation_start_time = perf_counter()
+        self.ai_toggle_button.setEnabled(False)
+        self.update_ai_panel_animation_frame()
+        self.ai_panel_animation_timer.start()
+
+    def eased_ai_animation_progress(self, progress):
+        progress = self.clamp_ai_progress(progress)
+        return 1.0 - ((1.0 - progress) ** 3)
+
+    def update_ai_panel_animation_frame(self):
+        elapsed_ms = (perf_counter() - self.ai_animation_start_time) * 1000
+        raw_progress = min(1.0, elapsed_ms / self.ai_panel_animation_duration)
+        eased_progress = self.eased_ai_animation_progress(raw_progress)
+        current_progress = (
+            self.ai_animation_start_progress
+            + (self.ai_animation_end_progress - self.ai_animation_start_progress) * eased_progress
+        )
+        self.apply_ai_panel_progress(current_progress)
+
+        if raw_progress >= 1.0:
+            self.ai_panel_animation_timer.stop()
+            self.ai_panel_collapsed = self.ai_animation_target_collapsed
+            self.apply_ai_panel_progress(self.ai_animation_end_progress)
+            self.set_ai_toggle_visual_state()
+            self.ai_toggle_button.setEnabled(True)
+            self.repaint_after_panel_toggle()
+
     def apply_holiday_styles(self, year=None):
         if year is None:
             year = self.calendar.yearShown()
@@ -1314,6 +719,10 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def run_command(self):
         text = self.command_input.toPlainText().strip()
+        if self.has_pending_ai_confirmation():
+            self.handle_pending_ai_confirmation_reply(text)
+            return
+
         if not text:
             self.show_result("입력 없음")
             return
@@ -1323,8 +732,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
             return
 
         self.pending_ai_text = text
-        self.run_button.setEnabled(False)
-        self.run_button.setText("해석 중")
+        self.command_input.setEnabled(False)
         self.openai_connection_status = "OpenAI API: 요청 처리 중"
         self.refresh_connection_status_icon()
         self.show_result(f"입력\n{text}\n\nAI 출력\n해석 중...")
@@ -1346,12 +754,11 @@ class CalendarWidget(QWidget): #메인 UI 구현
             self.show_result(f"{prefix}\n\n실행 결과\n명령을 이해하지 못했습니다.")
             return
 
-        try:
-            result = execute(command, self.engine)
-            self.command_input.clear()
-            self.apply_command_result(command, result, prefix)
-        except Exception as err:
-            self.show_result(f"{prefix}\n\n실행 결과\n실패: {err}")
+        if self.command_requires_confirmation(command):
+            self.wait_for_ai_confirmation(command, prefix)
+            return
+
+        self.execute_ai_command(command, prefix)
 
     def on_ai_command_failed(self, error_message):
         self.openai_connection_status = (
@@ -1389,8 +796,131 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         if action == "delete":
             return f"일정 삭제 조건: {command.get('condition', {})}"
+        if action == "skip_occurrence":
+            return f"회차 건너뛰기: {command.get('occurrence_date')} {command.get('condition', {})}"
+        if action == "update_occurrence":
+            return (
+                f"이 회차만 수정: {command.get('occurrence_date')} "
+                f"{command.get('updates', {})}"
+            )
+        if action == "update_recurrence_end":
+            return (
+                f"반복 종료일 수정: {command.get('recurrence_end')} "
+                f"{command.get('condition', {})}"
+            )
 
         return "알 수 없는 명령"
+
+    def command_requires_confirmation(self, command):
+        return command.get("action") in {
+            "add",
+            "add_period",
+            "delete",
+            "skip_occurrence",
+            "update_occurrence",
+            "update_recurrence_end",
+        }
+
+    def has_pending_ai_confirmation(self):
+        return self.pending_confirmation_command is not None
+
+    def set_ai_confirmation_mode(self, active):
+        self.confirmation_action_area.setVisible(active)
+        self.command_input.setEnabled(True)
+
+    def wait_for_ai_confirmation(self, command, prefix):
+        self.pending_confirmation_command = command
+        self.pending_confirmation_prefix = prefix
+        self.command_input.clear()
+        self.set_ai_confirmation_mode(True)
+        self.show_pending_ai_confirmation()
+
+    def show_pending_ai_confirmation(self, extra_message=None):
+        if not self.has_pending_ai_confirmation():
+            return
+
+        command = self.pending_confirmation_command
+        prefix = self.pending_confirmation_prefix
+        message = (
+            f"{prefix}\n\n"
+            f"확인\n{self.confirmation_message(command)}\n"
+            f"{self.confirmation_detail(command)}\n\n"
+            "답변\n실행 또는 취소를 입력하거나 아래 버튼을 선택해주세요."
+        )
+        if extra_message:
+            message += f"\n{extra_message}"
+        self.show_result(message)
+
+    def handle_pending_ai_confirmation_reply(self, text):
+        if not text:
+            self.show_pending_ai_confirmation("아직 답변이 입력되지 않았습니다.")
+            return
+
+        if is_ai_confirmation_acceptance(text):
+            self.accept_pending_ai_command()
+            return
+
+        if is_ai_confirmation_rejection(text):
+            self.reject_pending_ai_command()
+            return
+
+        self.command_input.clear()
+        self.show_pending_ai_confirmation("답변을 이해하지 못했습니다.")
+
+    def clear_pending_ai_confirmation(self):
+        self.pending_confirmation_command = None
+        self.pending_confirmation_prefix = ""
+        self.set_ai_confirmation_mode(False)
+
+    def accept_pending_ai_command(self):
+        if not self.has_pending_ai_confirmation():
+            return
+
+        command = self.pending_confirmation_command
+        prefix = self.pending_confirmation_prefix
+        self.clear_pending_ai_confirmation()
+        self.execute_ai_command(command, prefix)
+
+    def reject_pending_ai_command(self):
+        if not self.has_pending_ai_confirmation():
+            return
+
+        prefix = self.pending_confirmation_prefix
+        self.clear_pending_ai_confirmation()
+        self.command_input.clear()
+        self.show_result(f"{prefix}\n\n실행 결과\n사용자가 실행을 취소했습니다.")
+
+    def execute_ai_command(self, command, prefix):
+        try:
+            result = execute(command, self.engine)
+            self.command_input.clear()
+            self.apply_command_result(command, result, prefix)
+        except Exception as err:
+            self.show_result(f"{prefix}\n\n실행 결과\n실패: {err}")
+
+    def confirmation_message(self, command):
+        action = command.get("action")
+        if action == "add":
+            return "이 일정으로 추가할까요?"
+        if action == "add_period":
+            return "이 기간 일정으로 추가할까요?"
+        if action == "delete":
+            return "이 조건으로 삭제할까요?"
+        if action == "skip_occurrence":
+            return "이 회차만 건너뛸까요?"
+        if action == "update_occurrence":
+            return "이 회차만 수정할까요?"
+        if action == "update_recurrence_end":
+            return "반복 종료일을 수정할까요?"
+
+        return "이 명령을 실행할까요?"
+
+    def confirmation_detail(self, command):
+        detail = self.command_summary(command)
+        if command.get("action") == "delete":
+            return f"{detail}\n삭제하면 되돌릴 수 없습니다."
+
+        return detail
 
     def apply_command_result(self, command, result, message_prefix=None):
         action = command.get("action")
@@ -1413,6 +943,22 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         elif action == "delete":
             message = f"삭제됨\n{len(result)}개 일정"
+
+        elif action == "skip_occurrence":
+            self.selected_date = QDate.fromString(command["occurrence_date"], "yyyy-MM-dd")
+            self.calendar.setSelectedDate(self.selected_date)
+            message = f"회차 건너뜀\n{result['title']} ({command['occurrence_date']})"
+
+        elif action == "update_occurrence":
+            self.selected_date = QDate.fromString(result["date"], "yyyy-MM-dd")
+            self.calendar.setSelectedDate(self.selected_date)
+            message = f"회차 수정됨\n{result['time']} | {result['title']}"
+
+        elif action == "update_recurrence_end":
+            self.selected_date = QDate.fromString(result["date"], "yyyy-MM-dd")
+            self.calendar.setSelectedDate(self.selected_date)
+            end_text = result.get("recurrence_end") or "없음"
+            message = f"반복 종료일 수정됨\n{result['title']} | {end_text}"
 
         if message_prefix:
             self.show_result(f"{message_prefix}\n\n실행 결과\n{message}")
@@ -1463,27 +1009,32 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.refresh_events()
 
     def open_event_editor(self, item):
-        event_id = item.data(Qt.ItemDataRole.UserRole)
-        if event_id is None:
+        event = item.data(Qt.ItemDataRole.UserRole)
+        if event is None:
             return
 
-        try:
-            event = self.engine.get_event(event_id)
-        except Exception as err:
-            self.show_result(f"실패: {err}")
-            return
+        event_id = event["id"]
+        occurrence_date = event.get("occurrence_date") or event.get("date")
 
         dialog = EventEditDialog(event, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         try:
-            if dialog.requested_delete:
+            if dialog.requested_skip:
+                result = self.engine.skip_occurrence(event_id, occurrence_date)
+                self.show_result(f"건너뜀\n{result['title']} ({occurrence_date})")
+            elif dialog.requested_delete:
                 self.engine.delete_event(event_id)
                 self.show_result(f"삭제됨\n{event['title']}")
             else:
                 data = dialog.event_data()
-                result = self.engine.update_event(event_id, **data)
+                scope = data.pop("scope", "all")
+                if scope == "occurrence":
+                    result = self.engine.update_occurrence(event_id, occurrence_date, **data)
+                else:
+                    result = self.engine.update_event(event_id, **data)
+
                 if result.get("type") == "period":
                     self.selected_date = QDate.fromString(result["start_date"], "yyyy-MM-dd")
                     self.show_result(f"수정됨\n{result['title']}")
@@ -1534,7 +1085,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
             item = QListWidgetItem(text)
             item.setForeground(QBrush(QColor(event.get("color") or DEFAULT_EVENT_COLOR)))
-            item.setData(Qt.ItemDataRole.UserRole, event["id"])
+            item.setData(Qt.ItemDataRole.UserRole, event)
             item.setToolTip("클릭하여 수정/삭제")
             self.event_list.addItem(item)
 

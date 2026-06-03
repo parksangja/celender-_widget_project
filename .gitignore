@@ -9,6 +9,9 @@ env/
 .env
 
 events.json
+*.json.bak
+*.json.tmp
+*.json.corrupt-*
 holiday_api_key.txt
 holiday_cache.json
 

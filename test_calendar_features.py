@@ -3,11 +3,18 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 
+from PyQt6.QtCore import QDate
+
 from ai_parser_gpt import parse
 from calendar_engine import CalendarEngine
 from executor import execute
 from holiday_updater import get_korean_holidays, save_holiday_cache
 from korean_datetime_parser import lunar_to_solar
+from ui_support import (
+    is_ai_confirmation_acceptance,
+    is_ai_confirmation_rejection,
+    qdate_to_storage_date,
+)
 
 
 class CalendarFeatureTest(unittest.TestCase):
@@ -30,6 +37,20 @@ class CalendarFeatureTest(unittest.TestCase):
         self.assertEqual(result["title"], "세배")
         self.assertEqual(result["date"], "2026-02-17")
         self.assertEqual(result["time"], "15:00")
+
+    def test_qdate_lunar_input_converts_to_solar_storage_date(self):
+        self.assertEqual(
+            qdate_to_storage_date(QDate(2026, 1, 1), use_lunar=True),
+            "2026-02-17",
+        )
+
+    def test_ai_confirmation_reply_words(self):
+        self.assertTrue(is_ai_confirmation_acceptance("실행"))
+        self.assertTrue(is_ai_confirmation_acceptance("  OK  "))
+        self.assertTrue(is_ai_confirmation_rejection("취소"))
+        self.assertTrue(is_ai_confirmation_rejection("아니요"))
+        self.assertFalse(is_ai_confirmation_acceptance("회의 추가해줘"))
+        self.assertFalse(is_ai_confirmation_rejection("회의 추가해줘"))
 
     def test_korean_holidays(self):
         cache_path = Path(self.temp_dir.name) / "holiday_cache.json"

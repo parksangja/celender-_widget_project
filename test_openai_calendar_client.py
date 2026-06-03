@@ -5,6 +5,7 @@ from datetime import datetime
 
 from openai_calendar_client import (
     OPENAI_API_KEY_ENV,
+    apply_lunar_date_from_text,
     extract_output_text,
     format_openai_http_error,
     normalize_command,
@@ -57,6 +58,72 @@ class TestOpenAICalendarClient(unittest.TestCase):
         )
 
         self.assertEqual(command, {"action": "list", "date": "2026-05-21"})
+
+    def test_normalize_skip_occurrence_command(self):
+        command = normalize_command(
+            {
+                "action": "skip_occurrence",
+                "occurrence_date": "2026-05-08",
+                "condition": {"date": None, "time": None, "title": "운동"},
+            }
+        )
+
+        self.assertEqual(command["action"], "skip_occurrence")
+        self.assertEqual(command["occurrence_date"], "2026-05-08")
+        self.assertEqual(command["condition"]["date"], "2026-05-08")
+        self.assertEqual(command["condition"]["title"], "운동")
+
+    def test_lunar_date_postprocess_overrides_openai_date(self):
+        command = apply_lunar_date_from_text(
+            {
+                "action": "add",
+                "title": "세배",
+                "date": "2026-01-01",
+                "time": "15:00",
+                "duration": 60,
+            },
+            "2026년 음력 1월 1일 오후 3시 세배 추가해줘",
+            now=datetime(2026, 5, 1, 12, 0),
+        )
+
+        self.assertEqual(command["date"], "2026-02-17")
+
+    def test_lunar_date_postprocess_updates_occurrence_condition(self):
+        command = apply_lunar_date_from_text(
+            {
+                "action": "skip_occurrence",
+                "occurrence_date": "2026-01-01",
+                "condition": {"date": "2026-01-01", "title": "운동"},
+            },
+            "2026년 음력 1월 1일 운동 건너뛰어줘",
+            now=datetime(2026, 5, 1, 12, 0),
+        )
+
+        self.assertEqual(command["occurrence_date"], "2026-02-17")
+        self.assertEqual(command["condition"]["date"], "2026-02-17")
+        self.assertEqual(command["condition"]["title"], "운동")
+
+    def test_normalize_update_occurrence_command(self):
+        command = normalize_command(
+            {
+                "action": "update_occurrence",
+                "occurrence_date": "2026-05-08",
+                "condition": {"date": None, "time": None, "title": "운동"},
+                "updates": {
+                    "title": "저녁 운동",
+                    "date": None,
+                    "time": "19:00",
+                    "duration": None,
+                    "tag": None,
+                    "priority": None,
+                    "color": None,
+                },
+            }
+        )
+
+        self.assertEqual(command["action"], "update_occurrence")
+        self.assertEqual(command["updates"]["title"], "저녁 운동")
+        self.assertEqual(command["updates"]["time"], "19:00")
 
     def test_quota_error_is_user_friendly(self):
         detail = json.dumps(

@@ -7,6 +7,7 @@ from datetime import datetime
 
 from ai_parser_gpt import parse as parse_locally
 from holiday_updater import load_env_value
+from korean_datetime_parser import has_lunar_date_expression, parse_korean_datetime
 
 
 OPENAI_API_URL = "https://api.openai.com/v1/responses"
@@ -71,6 +72,7 @@ def parse_with_openai(text, now=None, requester=None):
     response = send_openai_request(payload, requester=requester)
     raw_text = extract_output_text(response)
     command = normalize_command(json.loads(raw_text), now=now)
+    command = apply_lunar_date_from_text(command, text, now=now)
 
     return CalendarAIResult(command, "openai", "OpenAI API로 해석했습니다.", raw_text)
 
@@ -102,8 +104,9 @@ Current date: {today}
 Current time: {current_time}
 
 Rules:
-- action must be one of add, add_period, list, delete, unknown.
+- action must be one of add, add_period, list, delete, skip_occurrence, update_occurrence, update_recurrence_end, unknown.
 - Use YYYY-MM-DD for dates and HH:MM 24-hour time.
+- If the user writes a lunar date with 음력, convert it to a Gregorian YYYY-MM-DD date.
 - If the user omits the date for an add or list request, use the current date.
 - If the user omits duration for a timed event, use 60 minutes.
 - For timed events, use action add with title, date, time, duration.
@@ -111,11 +114,46 @@ Rules:
 - If a period is indefinite or says 무기한/계속, set end_date to null.
 - For list, set date.
 - For delete, put known filters inside condition.
+- For skipping one recurring occurrence, use skip_occurrence with occurrence_date and condition.
+- For editing only one recurring occurrence, use update_occurrence with occurrence_date, condition, and updates.
+- For changing recurrence end date, use update_recurrence_end with condition and recurrence_end.
 - recurrence applies only to timed add events: none, weekly, monthly, yearly.
 - Use recurrence_end only when the user clearly gives a repeat end date.
 - If the request cannot be understood as a calendar command, action must be unknown.
 - Do not invent a color unless the user explicitly says one.
 """.strip()
+
+
+def apply_lunar_date_from_text(command, text, now=None):
+    if not has_lunar_date_expression(text):
+        return command
+
+    now = now or datetime.now()
+    solar_date = parse_korean_datetime(text, now=now).strftime("%Y-%m-%d")
+    action = command.get("action")
+    command = dict(command)
+
+    if action in {"add", "list"}:
+        command["date"] = solar_date
+
+    elif action == "add_period":
+        command["start_date"] = solar_date
+
+    elif action == "delete":
+        condition = dict(command.get("condition") or {})
+        condition["date"] = solar_date
+        command["condition"] = condition
+
+    elif action in {"skip_occurrence", "update_occurrence"}:
+        condition = dict(command.get("condition") or {})
+        command["occurrence_date"] = solar_date
+        condition["date"] = solar_date
+        command["condition"] = condition
+
+    elif action == "update_recurrence_end":
+        command["recurrence_end"] = solar_date
+
+    return command
 
 
 def command_schema():
@@ -139,12 +177,23 @@ def command_schema():
             "color",
             "recurrence",
             "recurrence_end",
+            "occurrence_date",
+            "updates",
             "reply",
         ],
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "add_period", "list", "delete", "unknown"],
+                "enum": [
+                    "add",
+                    "add_period",
+                    "list",
+                    "delete",
+                    "skip_occurrence",
+                    "update_occurrence",
+                    "update_recurrence_end",
+                    "unknown",
+                ],
             },
             "title": nullable_string,
             "date": nullable_string,
@@ -170,6 +219,21 @@ def command_schema():
                 "enum": ["none", "weekly", "monthly", "yearly"],
             },
             "recurrence_end": nullable_string,
+            "occurrence_date": nullable_string,
+            "updates": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["title", "date", "time", "duration", "tag", "priority", "color"],
+                "properties": {
+                    "title": nullable_string,
+                    "date": nullable_string,
+                    "time": nullable_string,
+                    "duration": nullable_integer,
+                    "tag": nullable_string,
+                    "priority": nullable_string,
+                    "color": nullable_string,
+                },
+            },
             "reply": {"type": "string"},
         },
     }
@@ -315,6 +379,61 @@ def normalize_command(data, now=None):
         return {
             "action": "delete",
             "condition": condition,
+        }
+
+    if action == "skip_occurrence":
+        occurrence_date = data.get("occurrence_date") or data.get("date")
+        if not occurrence_date:
+            return {"action": "unknown"}
+
+        condition = {
+            key: value
+            for key, value in (data.get("condition") or {}).items()
+            if value
+        }
+        condition.setdefault("date", occurrence_date)
+        return {
+            "action": "skip_occurrence",
+            "occurrence_date": occurrence_date,
+            "condition": condition,
+        }
+
+    if action == "update_occurrence":
+        occurrence_date = data.get("occurrence_date") or data.get("date")
+        if not occurrence_date:
+            return {"action": "unknown"}
+
+        condition = {
+            key: value
+            for key, value in (data.get("condition") or {}).items()
+            if value
+        }
+        condition.setdefault("date", occurrence_date)
+        updates = {
+            key: value
+            for key, value in (data.get("updates") or {}).items()
+            if value is not None
+        }
+        return {
+            "action": "update_occurrence",
+            "occurrence_date": occurrence_date,
+            "condition": condition,
+            "updates": updates,
+        }
+
+    if action == "update_recurrence_end":
+        condition = {
+            key: value
+            for key, value in (data.get("condition") or {}).items()
+            if value
+        }
+        if not condition or not data.get("recurrence_end"):
+            return {"action": "unknown"}
+
+        return {
+            "action": "update_recurrence_end",
+            "condition": condition,
+            "recurrence_end": data.get("recurrence_end"),
         }
 
     return {"action": "unknown"}

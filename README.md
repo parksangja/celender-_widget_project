@@ -12,17 +12,24 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 
 - PyQt6 기반 3분할 위젯 UI
 - 왼쪽 AI 입력 영역
+- AI 입력 영역 접기/펼치기
 - 가운데 캘린더 영역
+- 현재 달 이외 날짜 흐림 표시
 - 오른쪽 오늘/선택 날짜 일정 목록
 - OpenAI API 기반 AI 입력 해석
 - OpenAI API 키가 없거나 실패할 때 로컬 한국어 자연어 파서로 자동 대체
+- AI가 해석한 일정 추가/기간 추가/삭제 명령은 실행 전 확인
 - AI 입력창과 달력 사이 정보 아이콘으로 OpenAI/휴일 API 연결 상태 표시
+- 정보 아이콘 클릭으로 API 키와 모델명을 수정하는 설정 화면
 - 한국어 자연어 일정 추가/조회/삭제 명령 파싱
 - 일반/기간 일정 직접 추가 버튼
 - 오른쪽 일정 목록 클릭 수정/삭제
 - JSON 파일 기반 일정 저장
 - 일정 시간 충돌 검사
 - 매주/매달/매년 반복 일정
+- 반복 일정의 특정 회차 건너뛰기
+- 반복 일정의 특정 회차만 수정
+- 반복 일정 종료일 수정
 - 음력 날짜를 양력 날짜로 변환
 - 대한민국 공휴일 달력 표시
 - 공휴일/기간/일반 일정을 달력 색상 막대로 표시
@@ -30,6 +37,7 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 - 공공데이터포털 특일 정보 API 기반 2일 주기 휴일 자동 업데이트
 - API가 제공하는 선거일/임시공휴일 표시
 - 시작일만 있는 무기한 기간 일정
+- `events.json`과 `holiday_cache.json` 안전 저장/백업/손상 복구
 - 파서/실행기 테스트
 
 ## 파일 구조
@@ -43,6 +51,7 @@ celender-_widget_project/
 |-- openai_calendar_client.py   # OpenAI API 연결과 일정 명령 변환
 |-- korean_datetime_parser.py   # 한국어 날짜/시간 해석과 음력 변환
 |-- holiday_updater.py          # 공식 휴일 API 자동 업데이트와 캐시 휴일 조회
+|-- data_safety.py              # JSON 데이터 안전 저장/백업/복구 유틸
 |-- executor.py                 # 파서 명령을 캘린더 엔진에 실행
 |
 |-- test_parser.py              # 자연어 파서 테스트
@@ -50,6 +59,7 @@ celender-_widget_project/
 |-- test_calendar_features.py   # 음력/공휴일/기간 일정 테스트
 |-- test_holiday_updater.py     # 휴일 자동 업데이트 테스트
 |-- test_openai_calendar_client.py # OpenAI 연결부 단위 테스트
+|-- test_data_safety.py         # 일정/휴일 캐시 데이터 안정화 테스트
 |
 |-- requirements.txt            # 필요한 Python 패키지 목록
 |-- .env.example                # 공공데이터포털/OpenAI API 키 입력 예시
@@ -71,6 +81,9 @@ __pycache__/
 events.json
 .env
 holiday_cache.json
+*.json.bak
+*.json.tmp
+*.json.corrupt-*
 *.pyc
 .git/
 ```
@@ -94,7 +107,8 @@ make_submission.bat
 API 키가 있으면 앱을 켤 때 자동으로 확인하고, 마지막 업데이트 후 2일이 지나지 않았다면 `holiday_cache.json`에 저장된 캐시를 그대로 사용합니다.
 달력에 표시되는 공휴일은 이 API 캐시를 기준으로 합니다.
 
-API 키 설정 방법은 `.env` 사용을 추천합니다.
+API 키는 앱 안의 설정 화면이나 `.env` 파일로 설정할 수 있습니다.
+AI 입력창과 달력 사이의 작은 `i` 아이콘을 클릭하면 설정 화면이 열립니다.
 
 먼저 `.env.example` 파일을 복사해서 `.env` 파일을 만듭니다.
 
@@ -123,6 +137,7 @@ OPENAI_MODEL=gpt-5.4-mini
 `OPENAI_MODEL`은 기본값이 `gpt-5.4-mini`입니다. 필요하면 다른 모델명으로 바꿀 수 있습니다.
 
 AI 입력창과 달력 사이의 작은 `i` 아이콘에 마우스를 올리면 OpenAI API와 휴일 API 상태를 확인할 수 있습니다.
+같은 아이콘을 클릭하면 OpenAI API 키, OpenAI 모델, 공휴일 API 키를 수정할 수 있습니다.
 
 PowerShell 환경변수로 직접 넣는 방식도 사용할 수 있습니다.
 
@@ -131,6 +146,15 @@ $env:KOREA_HOLIDAY_API_KEY="공공데이터포털에서 받은 인증키"
 ```
 
 `.env`와 `holiday_cache.json`은 개인 설정/자동 생성 파일이므로 Git과 제출물에서 제외합니다.
+
+## 데이터 안정화
+
+일정 데이터와 휴일 캐시는 각각 `events.json`, `holiday_cache.json`에 저장됩니다.
+저장할 때는 기존 파일을 `.bak` 백업으로 남긴 뒤 임시 파일에 먼저 기록하고, 기록이 끝나면 실제 파일을 교체합니다.
+
+파일이 깨졌을 때는 가능한 경우 `.bak` 백업에서 자동 복구합니다.
+복구할 수 없는 깨진 파일은 `.corrupt-날짜시간` 파일로 보존하고, 앱은 빈 데이터로 계속 실행됩니다.
+이 백업/임시/손상 보존 파일은 개인 실행 데이터이므로 Git과 제출물에서 제외합니다.
 
 PowerShell에서 `python --version`을 입력했을 때 버전이 나오지 않으면 Python이 설치되어 있지 않거나, PATH 설정이 되어 있지 않은 상태입니다.
 그 경우 Python 공식 설치 파일을 사용하고, 설치할 때 **Add python.exe to PATH** 옵션을 켜야 합니다.
@@ -180,10 +204,10 @@ python main.py
 
 ## Git 메모
 
-`__pycache__`, `.venv`, `events.json` 같은 자동 생성 파일이나 개인 실행 데이터는 Git에 올리지 않도록 `.gitignore`에 등록되어 있습니다.
+`__pycache__`, `.venv`, `events.json`, `holiday_cache.json`, `*.json.bak` 같은 자동 생성 파일이나 개인 실행 데이터는 Git에 올리지 않도록 `.gitignore`에 등록되어 있습니다.
 
 ## 테스트 실행
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py test_openai_calendar_client.py
+.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py test_openai_calendar_client.py test_data_safety.py
 ```

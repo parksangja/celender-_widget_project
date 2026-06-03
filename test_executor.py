@@ -207,6 +207,79 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(len(self.engine.list_events("2026-05-08")), 1)
         self.assertEqual(self.engine.list_events("2026-05-15"), [])
 
+    def test_skip_single_recurring_occurrence(self):
+        self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+        )
+
+        skipped = execute(
+            {
+                "action": "skip_occurrence",
+                "occurrence_date": "2026-05-08",
+                "condition": {"date": "2026-05-08", "title": "운동"},
+            },
+            self.engine,
+        )
+
+        self.assertEqual(skipped["title"], "운동")
+        self.assertEqual(self.engine.list_events("2026-05-08"), [])
+        self.assertEqual(len(self.engine.list_events("2026-05-15")), 1)
+
+    def test_update_single_recurring_occurrence(self):
+        self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+        )
+
+        updated = execute(
+            {
+                "action": "update_occurrence",
+                "occurrence_date": "2026-05-08",
+                "condition": {"date": "2026-05-08", "title": "운동"},
+                "updates": {"time": "19:00", "title": "저녁 운동"},
+            },
+            self.engine,
+        )
+
+        original = self.engine.list_events("2026-05-01")[0]
+        changed = self.engine.list_events("2026-05-08")[0]
+        next_week = self.engine.list_events("2026-05-15")[0]
+
+        self.assertEqual(updated["title"], "저녁 운동")
+        self.assertEqual(changed["time"], "19:00")
+        self.assertEqual(changed["is_override"], True)
+        self.assertEqual(original["time"], "18:00")
+        self.assertEqual(next_week["title"], "운동")
+
+    def test_update_recurrence_end_command(self):
+        self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+        )
+
+        updated = execute(
+            {
+                "action": "update_recurrence_end",
+                "condition": {"title": "운동"},
+                "recurrence_end": "2026-05-10",
+            },
+            self.engine,
+        )
+
+        self.assertEqual(updated["recurrence_end"], "2026-05-10")
+        self.assertEqual(len(self.engine.list_events("2026-05-08")), 1)
+        self.assertEqual(self.engine.list_events("2026-05-15"), [])
+
     def test_update_recurring_event_keeps_recurrence_end(self):
         added = self.engine.add_event(
             "운동",
