@@ -6,7 +6,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QDate, QPoint, Qt
+from PyQt6.QtCore import QDate, QPoint, Qt, QTime
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QDialog
 
@@ -179,6 +179,40 @@ class CalendarFeatureTest(unittest.TestCase):
             for dialog in dialogs:
                 self.assertEqual(dialog.minimumSize(), dialog.maximumSize())
                 self.assertFalse(dialog.isSizeGripEnabled())
+        finally:
+            for dialog in dialogs:
+                dialog.close()
+            app.processEvents()
+
+    def test_dialog_time_range_can_cross_midnight(self):
+        app = QApplication.instance() or QApplication([])
+        event = {
+            "type": "timed",
+            "title": "야간 작업",
+            "date": "2026-05-01",
+            "time": "23:30",
+            "duration": 90,
+            "color": DEFAULT_EVENT_COLOR,
+            "recurrence": RECURRENCE_NONE,
+            "recurrence_end": None,
+        }
+        dialogs = [
+            ManualEventDialog(QDate(2026, 5, 1)),
+            EventEditDialog(event),
+        ]
+
+        try:
+            manual_dialog, edit_dialog = dialogs
+            manual_dialog.title_input.setText("야간 작업")
+            manual_dialog.start_time_input.setTime(QTime(23, 30))
+            manual_dialog.end_time_input.setTime(QTime(1, 0))
+
+            manual_data = manual_dialog.event_data()
+            edit_data = edit_dialog.event_data()
+
+            self.assertEqual(manual_data["duration"], 90)
+            self.assertEqual(edit_dialog.end_time_input.time().toString("HH:mm"), "01:00")
+            self.assertEqual(edit_data["duration"], 90)
         finally:
             for dialog in dialogs:
                 dialog.close()

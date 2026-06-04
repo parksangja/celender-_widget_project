@@ -1,5 +1,6 @@
 ##엔진은 그저 데이터 처리를 위해 존재함/
 #
+import calendar
 import os
 from datetime import date as date_type          #date: 연도, 월, 일 단위의 날짜를 다루는 표준 라이브러리 클래스
 from datetime import datetime, time, timedelta
@@ -83,10 +84,19 @@ class CalendarEngine:                               #엔진 클래스 정의
         if recurrence == RECURRENCE_WEEKLY:
             return (target_date - start_date).days % 7 == 0
         if recurrence == RECURRENCE_MONTHLY:
-            return target_date.day == start_date.day
+            return self._monthly_occurs_on(start_date, target_date)
         if recurrence == RECURRENCE_YEARLY:
             return target_date.month == start_date.month and target_date.day == start_date.day
         return False
+
+    def _monthly_occurs_on(self, start_date, target_date):
+        if self._is_last_day_of_month(start_date):
+            return self._is_last_day_of_month(target_date)
+
+        return target_date.day == start_date.day
+
+    def _is_last_day_of_month(self, date_obj):
+        return date_obj.day == calendar.monthrange(date_obj.year, date_obj.month)[1]
 
     def _timed_bounds_on(self, event, target_date):                  #이벤트의 시작과 끝을 계산하여 반환하는 함수
         start = datetime.combine(target_date, event["start"].time())

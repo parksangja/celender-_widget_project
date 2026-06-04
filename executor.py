@@ -8,7 +8,22 @@ def _require_fields(command, fields): #명령에 field가 없으면 예외 처�
         raise ValueError(f"Missing command fields: {', '.join(missing)}")
 
 
+def _clean_condition(condition):
+    cleaned = {}
+    for key, value in dict(condition or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        cleaned[key] = value
+    return cleaned
+
+
 def _matches_condition(event, condition): #실제 이벤트와 입력 받은 조건이 일치하는지 검사
+    condition = _clean_condition(condition)
+
     if "date" in condition:
         if event.get("type") == "period": #기간 이벤트면 우선 시간 충돌 검사
             target_date = datetime.strptime(condition["date"], "%Y-%m-%d").date()
@@ -32,6 +47,7 @@ def _matches_condition(event, condition): #실제 이벤트와 입력 받은 조
 
 
 def _find_first_event(engine, condition): #조건에 맞는 이벤트들 뽑아 그 이벤트 중 첫번째 이벤트를 반환하는 함수
+    condition = _clean_condition(condition)
     events = engine.list_events(condition.get("date"))
     targets = [event for event in events if _matches_condition(event, condition)]
     if not targets:
@@ -72,7 +88,7 @@ def execute(command, engine): #실행 함수
         return engine.list_events(command.get("date"))
 
     if action == "delete":                                  #명령 행동이 delete면, 우선 조건 검사(모든 이벤트 삭제를 막기 위해서임)
-        condition = command.get("condition", {})
+        condition = _clean_condition(command.get("condition", {}))
         if not condition:                                   #날짜나 시간, 제목같은 조건이 없다면 에외 처리
             raise ValueError("Delete condition is required")
 
@@ -86,14 +102,14 @@ def execute(command, engine): #실행 함수
 
     if action == "skip_occurrence": #명령 행동이 반복 스킵이면 아래 명령 실행
         _require_fields(command, ["occurrence_date", "condition"]) #명령에서 스킵할 날짜와 조건을 검사함
-        condition = dict(command.get("condition") or {})           #조건을 뽑아 딕셔너리로 만들거나, 조건이 없거나 비어있으면 빈 딕셔너리로 만듬
+        condition = _clean_condition(command.get("condition"))     #조건을 뽑아 딕셔너리로 만들거나, 조건이 없거나 비어있으면 빈 딕셔너리로 만듬
         condition.setdefault("date", command["occurrence_date"])   #'date'에 해당하는 값을 찾고, 없다면 'date'키를 만들고 값으로 command["occurrence_date"]를 넣음
         target = _find_first_event(engine, condition)              #조건에 맞는 첫번째 날짜 찾음
         return engine.skip_occurrence(target["id"], target.get("occurrence_date") or command["occurrence_date"])
 
     if action == "update_occurrence": #명령이 반복 업데이트면 아래 수행
         _require_fields(command, ["occurrence_date", "condition", "updates"]) #명령에서 업데이트 할 날짜, 조건, 업데이트 내용을 검사함
-        condition = dict(command.get("condition") or {})
+        condition = _clean_condition(command.get("condition"))
         condition.setdefault("date", command["occurrence_date"])
         target = _find_first_event(engine, condition)
         return engine.update_occurrence( #업데이트 할 이벤트의 id와 날짜, 내용을 엔진에 넣어 정보 처리
@@ -104,7 +120,7 @@ def execute(command, engine): #실행 함수
 
     if action == "update_recurrence_end": #명령이 반복 종료일 업데이트면 아래 명령 실행
         _require_fields(command, ["condition", "recurrence_end"]) #명령에서 조건과 반복 종료일 검사
-        condition = command.get("condition") or {} #조건은 명령에서 가져온 조건이거나 조건이 None이면 빈 딕셔너리로 함
+        condition = _clean_condition(command.get("condition")) #조건은 명령에서 가져온 조건이거나 조건이 None이면 빈 딕셔너리로 함
         if not condition:
             raise ValueError("Update condition is required")
         target = _find_first_event(engine, condition)

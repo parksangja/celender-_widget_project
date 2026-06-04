@@ -179,6 +179,54 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(result[0]["title"], "결제일")
         self.assertEqual(result[0]["recurrence"], "monthly")
 
+    def test_monthly_recurring_event_on_month_end_uses_target_month_end(self):
+        self.engine.add_event(
+            "월말 정산",
+            "2026-01-31",
+            "09:00",
+            30,
+            recurrence="monthly",
+        )
+
+        february = self.engine.list_events("2026-02-28")
+        march = self.engine.list_events("2026-03-31")
+        april = self.engine.list_events("2026-04-30")
+        not_month_end = self.engine.list_events("2026-04-29")
+
+        self.assertEqual(february[0]["title"], "월말 정산")
+        self.assertEqual(february[0]["date"], "2026-02-28")
+        self.assertEqual(march[0]["date"], "2026-03-31")
+        self.assertEqual(april[0]["date"], "2026-04-30")
+        self.assertEqual(not_month_end, [])
+
+    def test_monthly_recurring_event_on_short_month_end_does_not_duplicate_same_day(self):
+        self.engine.add_event(
+            "월말 점검",
+            "2026-02-28",
+            "09:00",
+            30,
+            recurrence="monthly",
+        )
+
+        same_day = self.engine.list_events("2026-03-28")
+        month_end = self.engine.list_events("2026-03-31")
+
+        self.assertEqual(same_day, [])
+        self.assertEqual(len(month_end), 1)
+        self.assertEqual(month_end[0]["title"], "월말 점검")
+
+    def test_monthly_recurring_event_not_on_month_end_keeps_same_day_only(self):
+        self.engine.add_event(
+            "30일 정산",
+            "2026-01-30",
+            "09:00",
+            30,
+            recurrence="monthly",
+        )
+
+        self.assertEqual(self.engine.list_events("2026-02-28"), [])
+        self.assertEqual(self.engine.list_events("2026-03-30")[0]["title"], "30일 정산")
+
     def test_yearly_recurring_event_appears_next_year(self):
         self.engine.add_event(
             "기념일",
@@ -258,6 +306,50 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(original["time"], "18:00")
         self.assertEqual(next_week["title"], "운동")
 
+    def test_skip_occurrence_ignores_empty_title_condition(self):
+        self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+        )
+
+        skipped = execute(
+            {
+                "action": "skip_occurrence",
+                "occurrence_date": "2026-05-08",
+                "condition": {"date": "2026-05-08", "title": None},
+            },
+            self.engine,
+        )
+
+        self.assertEqual(skipped["title"], "운동")
+        self.assertEqual(self.engine.list_events("2026-05-08"), [])
+
+    def test_update_occurrence_ignores_empty_title_condition(self):
+        self.engine.add_event(
+            "운동",
+            "2026-05-01",
+            "18:00",
+            60,
+            recurrence="weekly",
+        )
+
+        updated = execute(
+            {
+                "action": "update_occurrence",
+                "occurrence_date": "2026-05-08",
+                "condition": {"date": "2026-05-08", "title": None},
+                "updates": {"time": "19:00"},
+            },
+            self.engine,
+        )
+
+        self.assertEqual(updated["title"], "운동")
+        self.assertEqual(updated["time"], "19:00")
+        self.assertTrue(updated["is_override"])
+
     def test_update_recurrence_end_command(self):
         self.engine.add_event(
             "운동",
@@ -309,6 +401,14 @@ class ExecutorTest(unittest.TestCase):
     def test_delete_requires_condition(self):
         with self.assertRaises(ValueError):
             execute({"action": "delete", "condition": {}}, self.engine)
+
+    def test_delete_rejects_empty_condition_values(self):
+        self.engine.add_event("회의", "2026-05-01", "15:00", 60)
+
+        with self.assertRaises(ValueError):
+            execute({"action": "delete", "condition": {"title": None}}, self.engine)
+
+        self.assertEqual(len(self.engine.list_events("2026-05-01")), 1)
 
     def test_unknown_action(self):
         with self.assertRaises(ValueError):

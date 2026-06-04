@@ -382,13 +382,45 @@ class ExpandingCommandInput(QTextEdit): #확대 축소 처리용
         super().keyPressEvent(event)
 
 
+def lock_dialog_size_to_content(dialog, minimum_width=0):
+    dialog.setSizeGripEnabled(False)
+    dialog.setMinimumSize(0, 0)
+    dialog.setMaximumSize(16777215, 16777215)
+
+    layout = dialog.layout()
+    if layout is not None:
+        layout.invalidate()
+        layout.activate()
+
+    dialog.adjustSize()
+    size = dialog.sizeHint()
+    size.setWidth(max(size.width(), minimum_width))
+    dialog.setFixedSize(size)
+
+
+MINUTES_PER_DAY = 24 * 60
+
+
+def qtime_to_minutes(value):
+    return (value.hour() * 60) + value.minute()
+
+
+def duration_between_times(start_time, end_time):
+    start_minutes = qtime_to_minutes(start_time)
+    end_minutes = qtime_to_minutes(end_time)
+    if end_minutes < start_minutes:
+        end_minutes += MINUTES_PER_DAY
+    return end_minutes - start_minutes
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("설정")
         self.setModal(True)
-        self.setMinimumWidth(430)
+        self.fixed_minimum_width = 430
+        self.setMinimumWidth(self.fixed_minimum_width)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(18, 18, 18, 18)
@@ -447,6 +479,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(button_row)
 
         self.setLayout(layout)
+        lock_dialog_size_to_content(self, self.fixed_minimum_width)
 
     def toggle_key_visibility(self, checked):
         mode = QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -475,7 +508,8 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
 
         self.setWindowTitle("일정 직접 추가")
         self.setModal(True)
-        self.setMinimumWidth(360)
+        self.fixed_minimum_width = 360
+        self.setMinimumWidth(self.fixed_minimum_width)
 
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("제목")
@@ -611,6 +645,8 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
             (not is_period) and has_recurrence and self.recurrence_end_checkbox.isChecked()
         )
         self.lunar_leap_checkbox.setVisible(self.lunar_checkbox.isChecked())
+        if self.layout() is not None:
+            lock_dialog_size_to_content(self, self.fixed_minimum_width)
 
     def recurrence_value(self):
         return self.recurrence_input.currentData() or RECURRENCE_NONE
@@ -644,9 +680,7 @@ class ManualEventDialog(QDialog): #이벤트 직접추가 버튼 누르면 나�
 
         start_time = self.start_time_input.time()
         end_time = self.end_time_input.time()
-        start_minutes = (start_time.hour() * 60) + start_time.minute()
-        end_minutes = (end_time.hour() * 60) + end_time.minute()
-        duration = end_minutes - start_minutes
+        duration = duration_between_times(start_time, end_time)
 
         if duration <= 0:
             raise ValueError("종료 시간은 시작 시간보다 늦어야 합니다")
@@ -696,7 +730,8 @@ class EventEditDialog(QDialog):
 
         self.setWindowTitle("일정 수정")
         self.setModal(True)
-        self.setMinimumWidth(380)
+        self.fixed_minimum_width = 380
+        self.setMinimumWidth(self.fixed_minimum_width)
 
         self.title_input = QLineEdit(event.get("title", ""))
         self.color_picker = ColorPicker(event.get("color", DEFAULT_EVENT_COLOR))
@@ -839,6 +874,8 @@ class EventEditDialog(QDialog):
 
     def update_lunar_widgets(self):
         self.lunar_leap_checkbox.setVisible(self.lunar_checkbox.isChecked())
+        if self.layout() is not None:
+            lock_dialog_size_to_content(self, self.fixed_minimum_width)
 
     def input_date_string(self, date_input):
         return qdate_to_storage_date(
@@ -862,6 +899,8 @@ class EventEditDialog(QDialog):
         self.recurrence_end_date_input.setEnabled(
             has_recurrence and self.recurrence_end_checkbox.isChecked()
         )
+        if self.layout() is not None:
+            lock_dialog_size_to_content(self, self.fixed_minimum_width)
 
     def event_data(self):
         title = self.title_input.text().strip()
@@ -885,9 +924,7 @@ class EventEditDialog(QDialog):
 
         start_time = self.start_time_input.time()
         end_time = self.end_time_input.time()
-        start_minutes = (start_time.hour() * 60) + start_time.minute()
-        end_minutes = (end_time.hour() * 60) + end_time.minute()
-        duration = end_minutes - start_minutes
+        duration = duration_between_times(start_time, end_time)
 
         if duration <= 0:
             raise ValueError("종료 시간은 시작 시간보다 늦어야 합니다")

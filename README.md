@@ -6,7 +6,7 @@ PyQt6로 간단한 캘린더 UI를 만들고, 일정 데이터는 `events.json`�
 ## 프로젝트 목적
 
 Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 캘린더 위젯을 만드는 것이 목표입니다.
-현재 버전은 캘린더 UI, 일정 저장 엔진, 한국어 자연어 파서, 직접 일정 추가 기능을 포함한 중간 결과물입니다.
+현재 버전은 캘린더 UI, 일정 저장 엔진, OpenAI API 입력 해석, 로컬 한국어 자연어 파서, 직접 일정 추가/수정 기능, 반복 일정, 공휴일 자동 업데이트 기능을 포함한 중간 결과물입니다.
 
 ## 현재 구현된 기능
 
@@ -27,9 +27,11 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 - JSON 파일 기반 일정 저장
 - 일정 시간 충돌 검사
 - 매주/매달/매년 반복 일정
+- 매달 반복 일정의 말일 처리
 - 반복 일정의 특정 회차 건너뛰기
 - 반복 일정의 특정 회차만 수정
 - 반복 일정 종료일 수정
+- 자정을 넘는 일정 시간 편집
 - 음력 날짜를 양력 날짜로 변환
 - 대한민국 공휴일 달력 표시
 - 공휴일/기간/일반 일정을 달력 색상 막대로 표시
@@ -38,7 +40,6 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 - API가 제공하는 선거일/임시공휴일 표시
 - 시작일만 있는 무기한 기간 일정
 - `events.json`과 `holiday_cache.json` 안전 저장/백업/손상 복구
-- 파서/실행기 테스트
 
 ## 파일 구조
 
@@ -46,6 +47,8 @@ Outlook이나 기본 캘린더 앱보다 가볍게 사용할 수 있는 PC용 �
 celender-_widget_project/
 |
 |-- main.py                    # PyQt6 UI 실행 파일
+|-- ui_support.py              # 설정/직접 추가/수정 창과 UI 보조 기능
+|-- ui_styles.py               # 위젯 스타일시트
 |-- calendar_engine.py          # 일정 저장/조회/삭제/수정/색상/반복 엔진
 |-- ai_parser_gpt.py            # 한국어 자연어 명령 파서
 |-- openai_calendar_client.py   # OpenAI API 연결과 일정 명령 변환
@@ -53,13 +56,6 @@ celender-_widget_project/
 |-- holiday_updater.py          # 공식 휴일 API 자동 업데이트와 캐시 휴일 조회
 |-- data_safety.py              # JSON 데이터 안전 저장/백업/복구 유틸
 |-- executor.py                 # 파서 명령을 캘린더 엔진에 실행
-|
-|-- test_parser.py              # 자연어 파서 테스트
-|-- test_executor.py            # 실행기 테스트
-|-- test_calendar_features.py   # 음력/공휴일/기간 일정 테스트
-|-- test_holiday_updater.py     # 휴일 자동 업데이트 테스트
-|-- test_openai_calendar_client.py # OpenAI 연결부 단위 테스트
-|-- test_data_safety.py         # 일정/휴일 캐시 데이터 안정화 테스트
 |
 |-- requirements.txt            # 필요한 Python 패키지 목록
 |-- .env.example                # 공공데이터포털/OpenAI API 키 입력 예시
@@ -205,9 +201,3 @@ python main.py
 ## Git 메모
 
 `__pycache__`, `.venv`, `events.json`, `holiday_cache.json`, `*.json.bak` 같은 자동 생성 파일이나 개인 실행 데이터는 Git에 올리지 않도록 `.gitignore`에 등록되어 있습니다.
-
-## 테스트 실행
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest test_parser.py test_executor.py test_calendar_features.py test_holiday_updater.py test_openai_calendar_client.py test_data_safety.py
-```
