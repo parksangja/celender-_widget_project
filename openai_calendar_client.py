@@ -19,7 +19,7 @@ DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 class OpenAICalendarError(Exception):
     pass
 
-
+#@dataclass는 클래스 내부에서 꼭 써야하는 self와 __init__ 등을 줄여 파이썬에게 알아서 만들어달라고 부탁할 수 있게 만들어진 데코레이터
 @dataclass
 class CalendarAIResult:
     command: dict
@@ -28,7 +28,7 @@ class CalendarAIResult:
     raw_text: str = ""
 
 
-def get_openai_api_key(env_path=None):
+def get_openai_api_key(env_path=None):#API를 가져옴
     env_key = os.environ.get(OPENAI_API_KEY_ENV, "").strip()
     if env_key:
         return env_key
@@ -36,7 +36,7 @@ def get_openai_api_key(env_path=None):
     return load_env_value(OPENAI_API_KEY_ENV, env_path)
 
 
-def get_openai_model(env_path=None):
+def get_openai_model(env_path=None):#AI모델을 가져옴
     env_model = os.environ.get(OPENAI_MODEL_ENV, "").strip()
     if env_model:
         return env_model
@@ -44,11 +44,11 @@ def get_openai_model(env_path=None):
     return load_env_value(OPENAI_MODEL_ENV, env_path) or DEFAULT_OPENAI_MODEL
 
 
-def is_openai_configured(env_path=None):
+def is_openai_configured(env_path=None):#가져온 API키가 있으면 True, 없으면 False 반환
     return bool(get_openai_api_key(env_path))
 
 
-def parse_calendar_command(text, now=None):
+def parse_calendar_command(text, now=None):#AI를 불러오지 못하면 실행하는 함수
     if not is_openai_configured():
         return CalendarAIResult(
             parse_locally(text, now=now),
@@ -66,34 +66,34 @@ def parse_calendar_command(text, now=None):
         )
 
 
-def parse_with_openai(text, now=None, requester=None):
+def parse_with_openai(text, now=None, requester=None):#AI로 실행한 명령 출력 함수 requester가 있으면 테스트, 없이 None이면 실제 API불러와 실행
     now = now or datetime.now()
-    payload = build_request_payload(text, now)
-    response = send_openai_request(payload, requester=requester)
-    raw_text = extract_output_text(response)
-    command = normalize_command(json.loads(raw_text), now=now)
-    command = apply_lunar_date_from_text(command, text, now=now)
+    payload = build_request_payload(text, now)                   #ai에 보낼 데이터 생성
+    response = send_openai_request(payload, requester=requester) #응답 보내도 답 받음
+    raw_text = extract_output_text(response)                     #답에서 결과 추출
+    command = normalize_command(json.loads(raw_text), now=now)   #결과를 일반화 해서 명령을 만듬
+    command = apply_lunar_date_from_text(command, text, now=now) #만약 음력 명령이면 추가 실행
 
     return CalendarAIResult(command, "openai", "OpenAI API로 해석했습니다.", raw_text)
 
 
-def build_request_payload(text, now):
+def build_request_payload(text, now):#AI에게 보낼 데이터를 만드는 함수
     return {
-        "model": get_openai_model(),
-        "instructions": build_instructions(now),
-        "input": text,
+        "model": get_openai_model(), #환경변수 파일에서 정하는 모델
+        "instructions": build_instructions(now), #구조는 아래 규칙에 따름
+        "input": text, #사용자 입력
         "text": {
             "format": {
-                "type": "json_schema",
+                "type": "json_schema", #정해진 json 형식으로 답하라
                 "name": "calendar_command",
-                "strict": True,
-                "schema": command_schema(),
+                "strict": True, #구조에 무조건 맞추어라
+                "schema": command_schema(), #개요는 아래 명령 개요를 따른다
             }
         },
     }
 
 
-def build_instructions(now):
+def build_instructions(now):#AI가 지켜야 할 구조 및 규칙을 적은 함수
     today = now.strftime("%Y-%m-%d")
     current_time = now.strftime("%H:%M")
     return f"""
@@ -124,12 +124,12 @@ Rules:
 """.strip()
 
 
-def apply_lunar_date_from_text(command, text, now=None):
+def apply_lunar_date_from_text(command, text, now=None):#사용자 명령에 음력이 있으면 실행되는 함수
     if not has_lunar_date_expression(text):
         return command
 
     now = now or datetime.now()
-    solar_date = parse_korean_datetime(text, now=now).strftime("%Y-%m-%d")
+    solar_date = parse_korean_datetime(text, now=now).strftime("%Y-%m-%d")#받은 음력 날짜를 양력으로 변환
     action = command.get("action")
     command = dict(command)
 
@@ -156,7 +156,7 @@ def apply_lunar_date_from_text(command, text, now=None):
     return command
 
 
-def command_schema():
+def command_schema(): #명령 개요
     nullable_string = {"type": ["string", "null"]}
     nullable_integer = {"type": ["integer", "null"]}
 
@@ -239,19 +239,19 @@ def command_schema():
     }
 
 
-def send_openai_request(payload, requester=None):
+def send_openai_request(payload, requester=None):#build_request_payload로 만든 명령을 AI에게 보내는 함수
     api_key = get_openai_api_key()
     if not api_key:
         raise OpenAICalendarError("OPENAI_API_KEY가 설정되어 있지 않습니다.")
 
-    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")#명령을 받아 json형식으로 data를 만듬
+    request = urllib.request.Request( #openai_api url을 열고 data를 보냄.
         OPENAI_API_URL,
         data=data,
-        method="POST",
+        method="POST", #POST 형식으로 보냄
         headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}", #api키로 인증
+            "Content-Type": "application/json",   #보내는 내용의 타입은 어플리케이션에 사용할 json 파일
         },
     )
 
@@ -268,7 +268,7 @@ def send_openai_request(payload, requester=None):
         raise OpenAICalendarError(f"OpenAI API 연결 실패: {err.reason}") from err
 
 
-def format_openai_error_message(err):
+def format_openai_error_message(err):#형식 에러 처리 함수
     message = str(err).strip()
     if message:
         return message
@@ -276,7 +276,7 @@ def format_openai_error_message(err):
     return "OpenAI 해석에 실패했습니다."
 
 
-def format_openai_http_error(status_code, detail):
+def format_openai_http_error(status_code, detail):#인터넷 패킷 에러 처리 함수
     error_data = parse_openai_error_detail(detail)
     error_code = error_data.get("code")
     error_type = error_data.get("type")
@@ -299,7 +299,7 @@ def format_openai_http_error(status_code, detail):
     return f"OpenAI API 오류 {status_code}가 발생했습니다."
 
 
-def parse_openai_error_detail(detail):
+def parse_openai_error_detail(detail):#에러의 세부사항을 처리하는 함수
     try:
         data = json.loads(detail)
     except json.JSONDecodeError:
@@ -312,7 +312,7 @@ def parse_openai_error_detail(detail):
     return error_data
 
 
-def extract_output_text(response):
+def extract_output_text(response):#AI가 처리한 데이터를 받아와 결과물을 추출하는 함수
     if "output_text" in response and response["output_text"]:
         return response["output_text"]
 
@@ -330,7 +330,7 @@ def extract_output_text(response):
     return "".join(chunks).strip()
 
 
-def normalize_command(data, now=None):
+def normalize_command(data, now=None):#추출한 결과물을 일반화해 출력하는 함수
     now = now or datetime.now()
     action = data.get("action", "unknown")
     if action == "add":

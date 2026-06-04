@@ -3,6 +3,8 @@ import os
 import shutil
 from datetime import datetime
 #validator은 유효성 검사를 위해 가져오는 매소드, 만약 검사한 데이터가 validator의 조건에 맞지 않으면 ValueError 예외 발생
+#copy2는 파일 내용과 메타데이터까지 복사
+#엔진 파일 라인 229, 235에서 사용
 
 def backup_path(path): #백업 경로 설정 함수
     return f"{path}.bak" #경로에 .bak 붙여서 반환
@@ -32,7 +34,7 @@ def load_json_safely(path, default, validator=None):#`안전하게 JSON 파일�
             restore_backup(path)        #백업 파일 복원
             return backup_data
 
-        preserve_corrupt_file(path)
+        preserve_corrupt_file(path) #백업 데이터도 유효성검사를 통과 못하면, 기본값 반환
         return default
 
 
@@ -89,7 +91,7 @@ def preserve_corrupt_file(path): #손상 파일 보존 함수
         return
 
     try:
-        shutil.move(path, corrupt_path(path)) #손상 파일 경로에 원래 파일 이동
+        shutil.move(path, corrupt_path(path)) #원래 파일을 손상 파일 경로에 이동
     except OSError:
         pass
 
@@ -100,6 +102,6 @@ def restore_backup(path): #백업 파일 복원 함수
         return
 
     try:
-        shutil.copy2(target_backup_path, path) #파일 경로를 백업 파일 경로로 복사
+        shutil.copy2(target_backup_path, path) #백업 파일을 원래 파일에 복사
     except OSError:
         pass

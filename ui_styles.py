@@ -1,3 +1,4 @@
+#UI스타일 시트 중 매우 긴 스타일 시트를 걍 따로 빼놓은 파일
 def main_style_sheet():
     return """
             QWidget {
@@ -10,6 +11,11 @@ def main_style_sheet():
 
             QWidget#body {
                 background-color: #101114;
+            }
+
+            QWidget#resizeBorder {
+                background-color: transparent;
+                border: 0;
             }
 
             QFrame#aiSlot {

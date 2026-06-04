@@ -18,7 +18,7 @@ UPDATE_INTERVAL_DAYS = 2 #업데이트 주기
 REQUEST_TIMEOUT_SECONDS = 8 #요청 제한 시간
 
 
-@dataclass #이게 뭔지 모르겠네
+@dataclass
 class HolidayUpdateResult:
     updated: bool
     reason: str
@@ -81,7 +81,7 @@ def load_holiday_cache(cache_path=None): #전에 불러온 휴일정보 캐시�
     return data                         #data 딕셔너리 반환
 
 
-def save_holiday_cache(cache, cache_path=None):
+def save_holiday_cache(cache, cache_path=None): #휴일정보 캐시를 저장하는 함수
     cache_path = cache_path or HOLIDAY_CACHE_PATH
     save_json_safely(cache_path, cache)
 

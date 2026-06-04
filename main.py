@@ -9,6 +9,7 @@ from PyQt6.QtGui import QBrush, QColor, QTextCharFormat
 from PyQt6.QtWidgets import (
     QApplication,
     QCalendarWidget,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -50,6 +51,116 @@ from ui_support import (
 )
 
 
+class ResizeBorder(QWidget):
+    MAX_WIDGET_SIZE = 16777215
+
+    CURSORS = {
+        "left": Qt.CursorShape.SizeHorCursor,
+        "right": Qt.CursorShape.SizeHorCursor,
+        "top": Qt.CursorShape.SizeVerCursor,
+        "bottom": Qt.CursorShape.SizeVerCursor,
+        "top_left": Qt.CursorShape.SizeFDiagCursor,
+        "bottom_right": Qt.CursorShape.SizeFDiagCursor,
+        "top_right": Qt.CursorShape.SizeBDiagCursor,
+        "bottom_left": Qt.CursorShape.SizeBDiagCursor,
+    }
+
+    def __init__(self, target, edge):
+        super().__init__(target)
+
+        self.target = target
+        self.edge = edge
+        self.drag_start_pos = None
+        self.drag_start_geometry = None
+
+        self.setObjectName("resizeBorder")
+        self.setCursor(self.CURSORS[edge])
+        self.setToolTip("위젯 크기 조절")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.globalPosition().toPoint()
+            self.drag_start_geometry = self.target.geometry()
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton and self.drag_start_pos is not None:
+            delta = event.globalPosition().toPoint() - self.drag_start_pos
+            self.apply_resize_delta(delta.x(), delta.y())
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = None
+            self.drag_start_geometry = None
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+
+    def apply_resize_delta(self, width_delta, height_delta):
+        start_geometry = self.drag_start_geometry or self.target.geometry()
+        next_x = start_geometry.x()
+        next_y = start_geometry.y()
+        next_width = start_geometry.width()
+        next_height = start_geometry.height()
+
+        if "left" in self.edge:
+            next_x = start_geometry.x() + width_delta
+            next_width = start_geometry.width() - width_delta
+        elif "right" in self.edge:
+            next_width = start_geometry.width() + width_delta
+
+        if "top" in self.edge:
+            next_y = start_geometry.y() + height_delta
+            next_height = start_geometry.height() - height_delta
+        elif "bottom" in self.edge:
+            next_height = start_geometry.height() + height_delta
+
+        max_width = self.target.maximumWidth()
+        max_height = self.target.maximumHeight()
+
+        next_x, next_width = self.clamp_axis(
+            next_x,
+            next_width,
+            start_geometry.x(),
+            start_geometry.width(),
+            self.target.minimumWidth(),
+            max_width,
+            "left" in self.edge,
+        )
+        next_y, next_height = self.clamp_axis(
+            next_y,
+            next_height,
+            start_geometry.y(),
+            start_geometry.height(),
+            self.target.minimumHeight(),
+            max_height,
+            "top" in self.edge,
+        )
+
+        self.target.setGeometry(next_x, next_y, next_width, next_height)
+
+    def clamp_axis(self, next_pos, next_size, start_pos, start_size, min_size, max_size, anchored_at_start):
+        if next_size < min_size:
+            next_size = min_size
+            if anchored_at_start:
+                next_pos = start_pos + start_size - min_size
+
+        if max_size < self.MAX_WIDGET_SIZE and next_size > max_size:
+            next_size = max_size
+            if anchored_at_start:
+                next_pos = start_pos + start_size - max_size
+
+        return next_pos, next_size
+
+
 class CalendarWidget(QWidget): #메인 UI 구현
     def __init__(self):
         super().__init__()
@@ -58,11 +169,12 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.selected_date = QDate.currentDate()
         self.old_pos = None
         self.ai_panel_collapsed = False
-        self.expanded_minimum_width = 900
+        self.expanded_minimum_width = 820
+        self.minimum_widget_height = 500
         self.expanded_stretches = (3, 4, 2)
         self.collapsed_stretches = (2, 11, 5)
         self.ai_collapse_progress = 0.0
-        self.ai_panel_width = 280
+        self.ai_panel_width = 260
         self.ai_panel_animation_duration = 140
         self.ai_panel_animation_timer = QTimer(self)
         self.ai_panel_animation_timer.setInterval(16)
@@ -87,7 +199,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def init_ui(self): #초기 설정
         self.setWindowTitle("Mini Calendar Widget")
-        self.setMinimumSize(self.expanded_minimum_width, 600)
+        self.setMinimumSize(self.expanded_minimum_width, self.minimum_widget_height)
         self.resize(960, 600)
         self.setWindowFlags(
             Qt.WindowType.Tool
@@ -129,6 +241,12 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
         self.setLayout(window_layout)
         self.setStyleSheet(self._style_sheet())
+
+        self.resize_border_size = 8
+        self.resize_corner_size = 18
+        self.resize_borders = self.create_resize_borders()
+        self.position_resize_borders()
+
         self.show()
         self.apply_ai_panel_progress(0.0)
 
@@ -247,7 +365,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def _build_calendar_panel(self): #2번째 구역, 캘린더 붙이는 함수
         panel = QFrame()
         panel.setObjectName("calendarPanel")
-        panel.setMinimumWidth(380)
+        panel.setMinimumWidth(300)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(14, 14, 14, 14)
@@ -274,7 +392,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def _build_events_panel(self): #3번째 구역, 이벤트 리스트 있는 구역 붙이는 함수
         panel = QFrame()
         panel.setObjectName("panel")
-        panel.setMinimumWidth(210)
+        panel.setMinimumWidth(170)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(16, 16, 16, 16)
@@ -307,6 +425,62 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def _style_sheet(self): #UI디자인
         return main_style_sheet()
+
+    def create_resize_borders(self):
+        borders = {}
+        for edge in [
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "top_left",
+            "top_right",
+            "bottom_left",
+            "bottom_right",
+        ]:
+            borders[edge] = ResizeBorder(self, edge)
+        return borders
+
+    def position_resize_borders(self):
+        if not hasattr(self, "resize_borders"):
+            return
+
+        width = self.width()
+        height = self.height()
+        border = self.resize_border_size
+        corner = self.resize_corner_size
+        title_height = self.title_bar.height()
+        title_button_guard_width = 52
+        horizontal_length = max(0, width - (corner * 2))
+        safe_top_horizontal_length = max(0, width - corner - title_button_guard_width)
+        vertical_length = max(0, height - title_height - corner)
+
+        self.resize_borders["top_left"].setGeometry(0, 0, corner, corner)
+        self.resize_borders["top_right"].setGeometry(0, 0, 0, 0)
+        self.resize_borders["bottom_left"].setGeometry(0, height - corner, corner, corner)
+        self.resize_borders["bottom_right"].setGeometry(
+            width - corner,
+            height - corner,
+            corner,
+            corner,
+        )
+        self.resize_borders["top"].setGeometry(corner, 0, safe_top_horizontal_length, border)
+        self.resize_borders["bottom"].setGeometry(
+            corner,
+            height - border,
+            horizontal_length,
+            border,
+        )
+        self.resize_borders["left"].setGeometry(0, title_height, border, vertical_length)
+        self.resize_borders["right"].setGeometry(
+            width - border,
+            title_height,
+            border,
+            vertical_length,
+        )
+
+        for resize_border in self.resize_borders.values():
+            resize_border.raise_()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -587,6 +761,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.position_resize_borders()
         self.apply_ai_panel_progress(self.ai_collapse_progress)
 
     def clamp_ai_progress(self, progress):
