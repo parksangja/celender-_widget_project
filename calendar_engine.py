@@ -89,13 +89,14 @@ class CalendarEngine:                               #엔진 클래스 정의
             return target_date.month == start_date.month and target_date.day == start_date.day
         return False
 
-    def _monthly_occurs_on(self, start_date, target_date):
-        if self._is_last_day_of_month(start_date):
-            return self._is_last_day_of_month(target_date)
+    def _monthly_occurs_on(self, start_date, target_date): #매월 반복하는 일정에 해당 날짜가 포함되는지 확인하는 함수
+        if target_date.day == start_date.day: #날짜가 같으면 True
+            return True
+        
+        #날짜가 다른 경우 아래 조건문의 결과 반환
+        return self._is_last_day_of_month(start_date) and self._is_last_day_of_month(target_date)
 
-        return target_date.day == start_date.day
-
-    def _is_last_day_of_month(self, date_obj):
+    def _is_last_day_of_month(self, date_obj): #어떤 날이 달의 마지막 날짜인지 확인하는 함수
         return date_obj.day == calendar.monthrange(date_obj.year, date_obj.month)[1]
 
     def _timed_bounds_on(self, event, target_date):                  #이벤트의 시작과 끝을 계산하여 반환하는 함수

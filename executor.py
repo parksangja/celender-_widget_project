@@ -8,14 +8,14 @@ def _require_fields(command, fields): #명령에 field가 없으면 예외 처�
         raise ValueError(f"Missing command fields: {', '.join(missing)}")
 
 
-def _clean_condition(condition):
+def _clean_condition(condition): #조건에 None이 들어오면 에러가 나지 않게 무시하는 함수
     cleaned = {}
     for key, value in dict(condition or {}).items():
-        if value is None:
+        if value is None: #None이면 cleaned에 넣지 않기
             continue
         if isinstance(value, str):
             value = value.strip()
-            if not value:
+            if not value: #공백을 벗기면 공백일때 cleaned에 넣지 않기
                 continue
         cleaned[key] = value
     return cleaned
