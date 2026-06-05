@@ -144,7 +144,7 @@ class AICommandThread(QThread):
 
     def run(self):
         try:
-            result = parse_calendar_command(self.text)
+            result = parse_calendar_command(self.text) #입력 받은 텍스트를 parse_calendar_command에 보냄
         except Exception as err:
             self.failed.emit(str(err))
             return

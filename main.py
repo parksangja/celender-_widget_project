@@ -601,9 +601,9 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.holiday_update_thread = None
 
     def clear_ai_command_thread(self):
-        self.ai_command_thread = None
-        self.pending_ai_text = ""
-        self.command_input.setEnabled(True)
+        self.ai_command_thread = None #채팅창 내용을 비움
+        self.pending_ai_text = "" #입력창을 비움
+        self.command_input.setEnabled(True) #입력창에 쓸 수 있게 만듬.
 
     def refresh_connection_status_from_sources(self):
         if self.ai_command_thread and self.ai_command_thread.isRunning():
@@ -910,30 +910,30 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.command_input.setEnabled(False) #처리 전까지 채팅 입력 막음
         self.openai_connection_status = "OpenAI API: 요청 처리 중"
         self.refresh_connection_status_icon()
-        self.show_result(f"입력\n{text}\n\nAI 출력\n해석 중...")
+        self.show_result(f"입력\n{text}\n\n해석 중...")
 
         self.ai_command_thread = AICommandThread(text, self) #명령을 ui_support.py에 있는 클래스에 보냄
         self.ai_command_thread.parsed.connect(self.on_ai_command_parsed) #ai로 처리한 데이터를 on_ai_command_parsed로 보냄
-        self.ai_command_thread.failed.connect(self.on_ai_command_failed)
-        self.ai_command_thread.finished.connect(self.clear_ai_command_thread)
-        self.ai_command_thread.start()
+        self.ai_command_thread.failed.connect(self.on_ai_command_failed) #ai로 처리 실패 시 on_ai_command_failed로 보냄
+        self.ai_command_thread.finished.connect(self.clear_ai_command_thread) #위 함수가 끝났다면 clear_ai_command_thread로 보냄
+        self.ai_command_thread.start() #다시 입력 대기
 
     def on_ai_command_parsed(self, ai_result):
         self.update_openai_connection_status(ai_result)
 
         text = self.pending_ai_text #사용자 입력
         command = ai_result.command #ai로 해석한 명령
-        prefix = self.ai_result_prefix(text, ai_result, command)
+        prefix = self.ai_result_prefix(text, ai_result, command)#접두사? -> 채팅창 앞에 나오는거
 
-        if command.get("action") == "unknown":
+        if command.get("action") == "unknown": #명령이 unknown이면 명령 해석 실패로 간주
             self.show_result(f"{prefix}\n\n실행 결과\n명령을 이해하지 못했습니다.")
             return
 
-        if self.command_requires_confirmation(command):
-            self.wait_for_ai_confirmation(command, prefix)
+        if self.command_requires_confirmation(command): #명령 목록에 있으면
+            self.wait_for_ai_confirmation(command, prefix) #실행 확인 대기
             return
-
-        self.execute_ai_command(command, prefix) #execu명령 실행
+        
+        self.execute_ai_command(command, prefix) #실행 확인이 되었다면, executor 실행
 
     def on_ai_command_failed(self, error_message):
         self.openai_connection_status = (
@@ -1067,10 +1067,10 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def execute_ai_command(self, command, prefix):
         try:
-            result = execute(command, self.engine)
-            self.command_input.clear()
-            self.apply_command_result(command, result, prefix)
-        except Exception as err:
+            result = execute(command, self.engine) #명령을 executor.py에 있는 execute함수에 넣어 실행, 결과 반환
+            self.command_input.clear()             #입력창을 비움
+            self.apply_command_result(command, result, prefix) #명령에 따른 결과 메세지들과 아까 만든 접두사를 띄움
+        except Exception as err: #만약 실행 실패시 아래 오류 메세지 띄움
             self.show_result(f"{prefix}\n\n실행 결과\n실패: {err}")
 
     def confirmation_message(self, command):
