@@ -16,6 +16,10 @@ WEEKDAY_MAP = {
     "일요일": 6,
 }
 
+THIS_WEEK_WORDS = ("이번주", "이번 주")
+NEXT_WEEK_WORDS = ("다음주", "다음 주")
+WEEK_AFTER_NEXT_WORDS = ("다다음주", "다다음 주", "다음다음주", "다음 다음 주")
+
 #위와 마친가지로 한국어로 표현된 숫자들을 정수로 변환
 KOREAN_NUMBER_MAP = {
     "영": 0,
@@ -118,15 +122,21 @@ def _next_weekday_from(base_date, weekday):     #기준일로부터 어떤 요�
     return base_date + timedelta(days=delta)    #예시) 그래서 5일 남음
 
 
-def _weekday_in_this_week(base_date, weekday): #어떤 요일이 실제 주에서 언제인지 계산하는 함수
+def _weekday_in_relative_week(base_date, weekday, weeks_ahead):
     start_of_this_week = base_date - timedelta(days=base_date.weekday()) #기준일로 월요일을 구함
-    return start_of_this_week + timedelta(days=weekday) #월요일에 weekday더해서 실제 요일 반환
+    return start_of_this_week + timedelta(days=(weeks_ahead * 7) + weekday)
+
+
+def _has_any_word(text, words):
+    return any(word in text for word in words)
+
+
+def _weekday_in_this_week(base_date, weekday): #어떤 요일이 실제 주에서 언제인지 계산하는 함수
+    return _weekday_in_relative_week(base_date, weekday, 0) #월요일에 weekday더해서 실제 요일 반환
 
 
 def _weekday_in_next_week(base_date, weekday): #다음주 계산 함수 (위 _weekday_in_this_week랑 똑같이 작동함)
-    start_of_this_week = base_date - timedelta(days=base_date.weekday())
-    start_of_next_week = start_of_this_week + timedelta(days=7)
-    return start_of_next_week + timedelta(days=weekday)
+    return _weekday_in_relative_week(base_date, weekday, 1)
 
 
 def _parse_written_date(text, now): #실제 한국 날짜를 작성하는 함수
@@ -194,7 +204,9 @@ def _parse_written_date(text, now): #실제 한국 날짜를 작성하는 함수
 
 
 def has_date_expression(text): #날짜 표현이 있는지 검사하는 함수
-    if any(k in text for k in ["오늘", "내일", "모레", "글피", "이번주", "다음주", "이번달", "이번 달", "다음달", "다음 달", "음력"]):
+    if any(k in text for k in ["오늘", "내일", "모레", "글피", "이번달", "이번 달", "다음달", "다음 달", "음력"]):
+        return True
+    if _has_any_word(text, THIS_WEEK_WORDS + NEXT_WEEK_WORDS + WEEK_AFTER_NEXT_WORDS):
         return True
     if _find_weekday(text) is not None:
         return True
@@ -251,10 +263,13 @@ def parse_korean_datetime(text: str, now=None): #한국어 시간 표현 해석 
     if written_date is not None:
         date = written_date
 
-    elif "다음주" in text and weekday is not None:
+    elif _has_any_word(text, WEEK_AFTER_NEXT_WORDS) and weekday is not None:
+        date = _weekday_in_relative_week(date, weekday, 2)
+
+    elif _has_any_word(text, NEXT_WEEK_WORDS) and weekday is not None:
         date = _weekday_in_next_week(date, weekday)
 
-    elif "이번주" in text and weekday is not None:
+    elif _has_any_word(text, THIS_WEEK_WORDS) and weekday is not None:
         date = _weekday_in_this_week(date, weekday)
 
     elif "오늘" in text:
@@ -269,7 +284,10 @@ def parse_korean_datetime(text: str, now=None): #한국어 시간 표현 해석 
     elif "글피" in text:
         date = now.date() + timedelta(days=3)
 
-    elif "다음주" in text:
+    elif _has_any_word(text, WEEK_AFTER_NEXT_WORDS):
+        date += timedelta(days=14)
+
+    elif _has_any_word(text, NEXT_WEEK_WORDS):
         date += timedelta(days=7)
 
     elif weekday is not None:

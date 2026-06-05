@@ -7,7 +7,11 @@ from datetime import datetime
 
 from ai_parser_gpt import parse as parse_locally
 from holiday_updater import load_env_value
-from korean_datetime_parser import has_lunar_date_expression, parse_korean_datetime
+from korean_datetime_parser import (
+    has_date_expression,
+    has_lunar_date_expression,
+    parse_korean_datetime,
+)
 
 
 OPENAI_API_URL = "https://api.openai.com/v1/responses"
@@ -66,13 +70,13 @@ def parse_calendar_command(text, now=None):#명령을 실행하는 함수
         )
 
 
-def parse_with_openai(text, now=None, requester=None):#AI로 실행한 명령 출력 함수 requester가 있으면 테스트, 없이 None이면 실제 API불러와 실행
+def parse_with_openai(text, now=None, requester=None):#AI로 실행한 명령 출력 함수
     now = now or datetime.now()
     payload = build_request_payload(text, now)                   #ai에 보낼 데이터 생성
-    response = send_openai_request(payload, requester=requester) #응답 보내도 답 받음
+    response = send_openai_request(payload, requester=requester) #응답 보내고 답 받음
     raw_text = extract_output_text(response)                     #답에서 결과 추출
-    command = normalize_command(json.loads(raw_text), now=now)   #결과를 일반화 해서 명령을 만듬
-    command = apply_lunar_date_from_text(command, text, now=now) #만약 음력 명령이면 추가 실행
+    command = normalize_command(json.loads(raw_text), now=now)        #결과를 일반화 해서 명령을 만듬
+    command = apply_date_expression_from_text(command, text, now=now) #원문 날짜 표현으로 날짜를 보정
 
     return CalendarAIResult(command, "openai", "OpenAI API로 해석했습니다.", raw_text)
 
@@ -107,6 +111,7 @@ Rules:
 - action must be one of add, add_period, list, delete, skip_occurrence, update_occurrence, update_recurrence_end, unknown.
 - Use YYYY-MM-DD for dates and HH:MM 24-hour time.
 - If the user writes a lunar date with 음력, convert it to a Gregorian YYYY-MM-DD date.
+- Korean week expressions are calendar-week based: 이번주 means the current Monday-Sunday week, 다음주 means the next week, and 다다음주/다음 다음 주 means two weeks after the current week.
 - If the user omits the date for an add or list request, use the current date.
 - If the user omits duration for a timed event, use 60 minutes.
 - For timed events, use action add with title, date, time, duration.
@@ -124,34 +129,47 @@ Rules:
 """.strip()
 
 
+def apply_date_expression_from_text(command, text, now=None): #텍스트에서 날짜 표현을 해석해 해당 날짜를 생성하는 함수
+    if not has_date_expression(text):
+        return command
+
+    now = now or datetime.now()
+    parsed_date = parse_korean_datetime(text, now=now).strftime("%Y-%m-%d")
+    return apply_parsed_date_to_command(command, parsed_date)
+
+
 def apply_lunar_date_from_text(command, text, now=None):#사용자 명령에 음력이 있으면 실행되는 함수
     if not has_lunar_date_expression(text):
         return command
 
     now = now or datetime.now()
     solar_date = parse_korean_datetime(text, now=now).strftime("%Y-%m-%d")#받은 음력 날짜를 양력으로 변환
+    return apply_parsed_date_to_command(command, solar_date)
+
+
+def apply_parsed_date_to_command(command, parsed_date):#명령과 받은 날짜를 연결해주는 함수
     action = command.get("action")
     command = dict(command)
 
     if action in {"add", "list"}:
-        command["date"] = solar_date
+        command["date"] = parsed_date
 
     elif action == "add_period":
-        command["start_date"] = solar_date
+        command["start_date"] = parsed_date
 
     elif action == "delete":
         condition = dict(command.get("condition") or {})
-        condition["date"] = solar_date
+        condition["date"] = parsed_date
         command["condition"] = condition
 
     elif action in {"skip_occurrence", "update_occurrence"}:
         condition = dict(command.get("condition") or {})
-        command["occurrence_date"] = solar_date
-        condition["date"] = solar_date
+        command["occurrence_date"] = parsed_date
+        condition["date"] = parsed_date
         command["condition"] = condition
 
     elif action == "update_recurrence_end":
-        command["recurrence_end"] = solar_date
+        command["recurrence_end"] = parsed_date
 
     return command
 
@@ -259,7 +277,7 @@ def send_openai_request(payload, requester=None):#build_request_payload로 만�
         if requester is not None:
             return requester(request, data)
 
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=20) as response: #답변 받음
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
         detail = err.read().decode("utf-8", errors="replace")

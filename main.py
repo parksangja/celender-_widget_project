@@ -894,8 +894,8 @@ class CalendarWidget(QWidget): #메인 UI 구현
 
     def run_command(self):#명령 실행 함수
         text = self.command_input.toPlainText().strip() #사용자 입력을 받아옴
-        if self.has_pending_ai_confirmation():          #만약 입력 받은게 없다면
-            self.handle_pending_ai_confirmation_reply(text)
+        if self.has_pending_ai_confirmation():          #AI 명령 실행 전 사용자 확인 답변을 기다리는 중이면
+            self.handle_pending_ai_confirmation_reply(text) #실행/취소 답변 대기
             return
 
         if not text: #입력 받은게 없다면
@@ -996,8 +996,8 @@ class CalendarWidget(QWidget): #메인 UI 구현
             "update_recurrence_end",
         }
 
-    def has_pending_ai_confirmation(self):
-        return self.pending_confirmation_command is not None
+    def has_pending_ai_confirmation(self): #AI명령 확인 함수
+        return self.pending_confirmation_command is not None #입력 없으면 False, 입력 있으면 True
 
     def set_ai_confirmation_mode(self, active):
         self.confirmation_action_area.setVisible(active)

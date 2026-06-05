@@ -189,6 +189,116 @@ class TestOpenAICalendarClient(unittest.TestCase):
         self.assertEqual(result.command["end_date"], None)
         self.assertEqual(result.command["color"], "#2DBE78")
 
+    def test_parse_with_openai_corrects_week_after_next_date_from_text(self):
+        original_key = os.environ.get(OPENAI_API_KEY_ENV)
+        os.environ[OPENAI_API_KEY_ENV] = "test-key"
+
+        def fake_requester(_request, data):
+            payload = json.loads(data.decode("utf-8"))
+            self.assertIn("다다음주", payload["input"])
+
+            return {
+                "output_text": json.dumps(
+                    {
+                        "action": "add",
+                        "title": "수업",
+                        "date": "2026-06-22",
+                        "time": "14:00",
+                        "duration": 60,
+                        "start_date": None,
+                        "end_date": None,
+                        "condition": {"date": None, "time": None, "title": None},
+                        "tag": None,
+                        "priority": None,
+                        "color": None,
+                        "recurrence": "none",
+                        "recurrence_end": None,
+                        "occurrence_date": None,
+                        "updates": {
+                            "title": None,
+                            "date": None,
+                            "time": None,
+                            "duration": None,
+                            "tag": None,
+                            "priority": None,
+                            "color": None,
+                        },
+                        "reply": "일정으로 해석했습니다.",
+                    },
+                    ensure_ascii=False,
+                )
+            }
+
+        try:
+            result = parse_with_openai(
+                "다다음주 월요일 오후 2시 수업 추가해줘",
+                now=datetime(2026, 6, 5, 12, 0),
+                requester=fake_requester,
+            )
+        finally:
+            if original_key is None:
+                os.environ.pop(OPENAI_API_KEY_ENV, None)
+            else:
+                os.environ[OPENAI_API_KEY_ENV] = original_key
+
+        self.assertEqual(result.command["action"], "add")
+        self.assertEqual(result.command["date"], "2026-06-15")
+
+    def test_parse_with_openai_corrects_lunar_date_from_text(self):
+        original_key = os.environ.get(OPENAI_API_KEY_ENV)
+        os.environ[OPENAI_API_KEY_ENV] = "test-key"
+
+        def fake_requester(_request, data):
+            payload = json.loads(data.decode("utf-8"))
+            self.assertIn("음력", payload["input"])
+
+            return {
+                "output_text": json.dumps(
+                    {
+                        "action": "add",
+                        "title": "세배",
+                        "date": "2026-01-01",
+                        "time": "15:00",
+                        "duration": 60,
+                        "start_date": None,
+                        "end_date": None,
+                        "condition": {"date": None, "time": None, "title": None},
+                        "tag": None,
+                        "priority": None,
+                        "color": None,
+                        "recurrence": "none",
+                        "recurrence_end": None,
+                        "occurrence_date": None,
+                        "updates": {
+                            "title": None,
+                            "date": None,
+                            "time": None,
+                            "duration": None,
+                            "tag": None,
+                            "priority": None,
+                            "color": None,
+                        },
+                        "reply": "일정으로 해석했습니다.",
+                    },
+                    ensure_ascii=False,
+                )
+            }
+
+        try:
+            result = parse_with_openai(
+                "2026년 음력 1월 1일 오후 3시 세배 추가해줘",
+                now=datetime(2026, 5, 1, 12, 0),
+                requester=fake_requester,
+            )
+        finally:
+            if original_key is None:
+                os.environ.pop(OPENAI_API_KEY_ENV, None)
+            else:
+                os.environ[OPENAI_API_KEY_ENV] = original_key
+
+        self.assertEqual(result.command["action"], "add")
+        self.assertEqual(result.command["date"], "2026-02-17")
+
 
 if __name__ == "__main__":
     unittest.main()

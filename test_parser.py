@@ -32,6 +32,15 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(result["action"], "list")
         self.assertEqual(result["date"], "2026-05-04")
 
+    def test_week_after_next_weekday(self):
+        now = datetime(2026, 6, 5, 12, 0)
+        result = parse("다다음주 월요일 오후 2시 수업 추가해줘", now=now)
+
+        self.assertEqual(result["action"], "add")
+        self.assertEqual(result["title"], "수업")
+        self.assertEqual(result["date"], "2026-06-15")
+        self.assertEqual(result["time"], "14:00")
+
     def test_delete_event_title(self):
         result = parse("오늘 회의 삭제해줘", now=self.now)
 
