@@ -60,7 +60,7 @@ def parse_calendar_command(text, now=None):#명령을 실행하는 함수
         return parse_with_openai(text, now=now) #ai에게 명령 보냄
     except Exception as err:
         return CalendarAIResult(
-            parse_locally(text, now=now),
+            parse_locally(text, now=now), #로컬 파서로 명령 실행
             "local_fallback",
             f"{format_openai_error_message(err)}\n현재는 로컬 파서로 처리했습니다.",
         )
