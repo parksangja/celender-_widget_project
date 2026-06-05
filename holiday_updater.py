@@ -86,21 +86,22 @@ def save_holiday_cache(cache, cache_path=None): #휴일정보 캐시를 저장�
     save_json_safely(cache_path, cache)
 
 
-def is_cache_fresh(cache, now=None, update_interval_days=UPDATE_INTERVAL_DAYS):
+def is_cache_fresh(cache, now=None, update_interval_days=UPDATE_INTERVAL_DAYS):#캐시가 최신 캐시인지 확인하는 함수
     updated_at = cache.get("updated_at")
     if not updated_at:
         return False
 
     try:
-        updated_time = datetime.fromisoformat(updated_at)
+        updated_time = datetime.fromisoformat(updated_at) #업데이트 시간을 datetime 객체로 반환
     except ValueError:
         return False
 
     now = now or datetime.now()
     return now - updated_time < timedelta(days=update_interval_days)
+    #마지막 업데이트 시각부터 현재까지 시간과 업데이트 간격을 비교해 업데이트 간격이 크면 True, 작으면 False 반환
 
 
-def load_cached_public_holidays(year, cache_path=None):
+def load_cached_public_holidays(year, cache_path=None):#캐시에 있는 공휴일을 불러오는 함수
     cache = load_holiday_cache(cache_path)
     holidays = cache.get("years", {}).get(str(year), {})
     if not isinstance(holidays, dict):
@@ -116,7 +117,7 @@ def load_cached_public_holidays(year, cache_path=None):
     return result
 
 
-def get_korean_holidays(year, cache_path=None):
+def get_korean_holidays(year, cache_path=None):#휴일을 가져오는 함수
     holidays = load_cached_public_holidays(year, cache_path)
     return {
         date_str: names
