@@ -48,16 +48,16 @@ def is_openai_configured(env_path=None):#가져온 API키가 있으면 True, 없
     return bool(get_openai_api_key(env_path))
 
 
-def parse_calendar_command(text, now=None):#AI를 불러오지 못하면 실행하는 함수
-    if not is_openai_configured():
-        return CalendarAIResult(
-            parse_locally(text, now=now),
+def parse_calendar_command(text, now=None):#명령을 실행하는 함수
+    if not is_openai_configured(): #API가 없으면 아래 코드로 반환
+        return CalendarAIResult( #출력
+            parse_locally(text, now=now),#ai없는 파서로 해석해 출력
             "local",
             "OpenAI API 키가 없어 로컬 파서로 해석했습니다.",
         )
 
     try:
-        return parse_with_openai(text, now=now)
+        return parse_with_openai(text, now=now) #ai에게 명령 보냄
     except Exception as err:
         return CalendarAIResult(
             parse_locally(text, now=now),

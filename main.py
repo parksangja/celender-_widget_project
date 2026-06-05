@@ -51,7 +51,7 @@ from ui_support import (
 )
 
 
-class ResizeBorder(QWidget):
+class ResizeBorder(QWidget):#UI크기 조절
     MAX_WIDGET_SIZE = 16777215
 
     CURSORS = {
@@ -303,9 +303,9 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.result_box.setReadOnly(True)
         self.result_box.setText("대기 중")
 
-        self.command_input = ExpandingCommandInput()
-        self.command_input.setPlaceholderText("일정을 입력하세요")
-        self.command_input.submitted.connect(self.run_command)
+        self.command_input = ExpandingCommandInput() #AI창에 입력
+        self.command_input.setPlaceholderText("일정을 입력하세요") #입력하는 곳에 뜨는 메세지
+        self.command_input.submitted.connect(self.run_command) #입력을 run_command함수에 보냄
 
         self.confirmation_action_area = QFrame()
         confirmation_layout = QHBoxLayout()
@@ -892,28 +892,28 @@ class CalendarWidget(QWidget): #메인 UI 구현
         self.selected_date = date
         self.refresh_events()
 
-    def run_command(self):
-        text = self.command_input.toPlainText().strip()
-        if self.has_pending_ai_confirmation():
+    def run_command(self):#명령 실행 함수
+        text = self.command_input.toPlainText().strip() #사용자 입력을 받아옴
+        if self.has_pending_ai_confirmation():          #만약 입력 받은게 없다면
             self.handle_pending_ai_confirmation_reply(text)
             return
 
-        if not text:
-            self.show_result("입력 없음")
+        if not text: #입력 받은게 없다면
+            self.show_result("입력 없음") #채팅창에 "입력 없음" 띄우고 다시 입력 대기
             return
 
-        if self.ai_command_thread is not None and self.ai_command_thread.isRunning():
-            self.show_result("AI 해석이 진행 중입니다. 잠시만 기다려주세요.")
+        if self.ai_command_thread is not None and self.ai_command_thread.isRunning():#명령에 대한 ai의 실행이 있고 계속되고 있다면
+            self.show_result("AI 해석이 진행 중입니다. 잠시만 기다려주세요.")#채팅창에 옆에 메세지 띄움
             return
 
         self.pending_ai_text = text
-        self.command_input.setEnabled(False)
+        self.command_input.setEnabled(False) #처리 전까지 채팅 입력 막음
         self.openai_connection_status = "OpenAI API: 요청 처리 중"
         self.refresh_connection_status_icon()
         self.show_result(f"입력\n{text}\n\nAI 출력\n해석 중...")
 
-        self.ai_command_thread = AICommandThread(text, self)
-        self.ai_command_thread.parsed.connect(self.on_ai_command_parsed)
+        self.ai_command_thread = AICommandThread(text, self) #명령을 ui_support.py에 있는 클래스에 보냄
+        self.ai_command_thread.parsed.connect(self.on_ai_command_parsed) #ai로 처리한 데이터를 on_ai_command_parsed로 보냄
         self.ai_command_thread.failed.connect(self.on_ai_command_failed)
         self.ai_command_thread.finished.connect(self.clear_ai_command_thread)
         self.ai_command_thread.start()
@@ -921,8 +921,8 @@ class CalendarWidget(QWidget): #메인 UI 구현
     def on_ai_command_parsed(self, ai_result):
         self.update_openai_connection_status(ai_result)
 
-        text = self.pending_ai_text
-        command = ai_result.command
+        text = self.pending_ai_text #사용자 입력
+        command = ai_result.command #ai로 해석한 명령
         prefix = self.ai_result_prefix(text, ai_result, command)
 
         if command.get("action") == "unknown":
@@ -933,7 +933,7 @@ class CalendarWidget(QWidget): #메인 UI 구현
             self.wait_for_ai_confirmation(command, prefix)
             return
 
-        self.execute_ai_command(command, prefix)
+        self.execute_ai_command(command, prefix) #execu명령 실행
 
     def on_ai_command_failed(self, error_message):
         self.openai_connection_status = (
